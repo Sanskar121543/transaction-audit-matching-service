@@ -1,0 +1,56 @@
+spring:
+  application:
+    name: transaction-audit-matching-service
+  config:
+    # Local runs from the repo root or from service/ pick up the repo's .env (gitignored).
+    import: optional:file:.env[.properties],optional:file:../.env[.properties]
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:${POSTGRES_PORT:5433}/${POSTGRES_DB:reconciliation}}
+    username: ${DB_USER:${POSTGRES_USER:reconciliation}}
+    password: ${DB_PASSWORD:${POSTGRES_PASSWORD:}}
+    hikari:
+      maximum-pool-size: 10
+      connection-timeout: 5000
+      data-source-properties:
+        ApplicationName: ${matching.instance-id}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  jackson:
+    deserialization:
+      accept-float-as-int: false
+      fail-on-unknown-properties: true
+
+server:
+  shutdown: graceful
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+  metrics:
+    tags:
+      # Not "instance": Prometheus already uses that label for the scrape target.
+      app_instance: ${matching.instance-id}
+
+logging:
+  structured:
+    format:
+      console: ecs
+    ecs:
+      service:
+        node-name: ${matching.instance-id}
+
+matching:
+  instance-id: ${INSTANCE_ID:local}
+  security:
+    api-keys: ${API_KEY_HASHES:}
+  ingest:
+    max-rows: 200000
+    max-bytes: 32MB
+    max-rejections-reported: 1000
+  rules:
+    amount-tolerance-cents: 100
+    date-window-days: 3
