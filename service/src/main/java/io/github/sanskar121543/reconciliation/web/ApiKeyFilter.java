@@ -46,6 +46,10 @@ public class ApiKeyFilter extends OncePerRequestFilter {
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
         String path = routedPath(request);
+        // UrlPathHelper leaves "." and ".." segments in place, so "/vendor/../v1/runs" would look open.
+        if (path.contains("/.")) {
+            return false;
+        }
         return OPEN_PATHS.contains(path) || OPEN_PREFIXES.stream().anyMatch(path::startsWith);
     }
 
