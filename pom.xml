@@ -16,6 +16,7 @@
 	<description>Compares a ledger against a bank statement, finds every mismatch and tracks its resolution</description>
 
 	<modules>
+		<module>generator</module>
 		<module>service</module>
 	</modules>
 
@@ -26,6 +27,11 @@
 
 	<dependencyManagement>
 		<dependencies>
+			<dependency>
+				<groupId>io.github.sanskar121543</groupId>
+				<artifactId>generator</artifactId>
+				<version>${project.version}</version>
+			</dependency>
 			<dependency>
 				<groupId>org.apache.commons</groupId>
 				<artifactId>commons-csv</artifactId>
