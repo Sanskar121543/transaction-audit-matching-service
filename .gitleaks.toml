@@ -1,0 +1,11 @@
+[extend]
+useDefault = true
+
+# The two demo keys in .env.example are public on purpose: they only open a stack that binds to 127.0.0.1
+# and holds synthetic data. Only these exact values are allowed, so any other key in any file still fails.
+[[allowlists]]
+description = "Public local-only demo API keys from .env.example"
+regexes = [
+    '''^tams_ops_c7fd845f226d6622874ebd84c5f8d3c4$''',
+    '''^tams_mcp_7662927d85731a46cbffb9208629e824$''',
+]
