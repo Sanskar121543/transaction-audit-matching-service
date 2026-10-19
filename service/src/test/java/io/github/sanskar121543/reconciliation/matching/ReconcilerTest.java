@@ -127,6 +127,18 @@ class ReconcilerTest {
     }
 
     @Test
+    void aLineWhoseReferenceAgreesWinsOverAnEarlierLineWithOnlyTheAmountInCommon() {
+        LedgerItem invoice = ledger(1, 10, 100_00, "INV-5");
+        StatementItem noReference = line(1, 10, 100_00, "");
+        StatementItem feeDeducted = line(2, 11, 99_50, "INV-5");
+
+        Reconciler.Outcome outcome = reconcile(List.of(invoice), List.of(noReference, feeDeducted), List.of());
+
+        assertThat(outcome.matches()).containsExactly(new MatchDecision(invoice, feeDeducted, Rule.TOLERANCE));
+        assertThat(single(outcome).line()).isEqualTo(noReference);
+    }
+
+    @Test
     void theNormalizedReferenceRuleMatchesWhatTheDateWindowLeftOut() {
         LedgerItem record = ledger(1, 1, 100_00, "INV-8");
         StatementItem late = line(1, 20, 100_00, "inv 8");

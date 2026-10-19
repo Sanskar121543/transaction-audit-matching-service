@@ -51,6 +51,18 @@ class ToleranceRuleTest {
                 nearAmountNearDateLowId)).contains(nearAmountNearDateLowId);
     }
 
+    @Test
+    void theAgreeingReferenceVariantIgnoresCandidatesWithAnotherReference() {
+        LedgerItem other = ledger(1, 10, 100_00, "INV-1");
+        LedgerItem same = ledger(2, 10, 100_50, "INV-2");
+        StatementItem line = line(1, 10, 100_00, "inv 2");
+
+        assertThat(ToleranceRule.pickWithAgreeingReference(line, List.of(other, same), oneDollarThreeDays)).contains(same);
+        assertThat(ToleranceRule.pickWithAgreeingReference(line, List.of(other), oneDollarThreeDays)).isEmpty();
+        assertThat(ToleranceRule.pickWithAgreeingReference(line(2, 10, 100_00, ""), List.of(other), oneDollarThreeDays))
+                .isEmpty();
+    }
+
     private Optional<LedgerItem> pick(StatementItem line, LedgerItem... ledger) {
         return ToleranceRule.pick(line, List.of(ledger), oneDollarThreeDays);
     }

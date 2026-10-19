@@ -13,6 +13,7 @@ import java.util.function.Function;
  * The end-of-run step for one account, once every statement line is in. The exact rule (a) already ran
  * on each line as it arrived; this runs rule (b), then rule (c), over every line still unmatched. Running
  * the fuzzy rules only now means they can never take a ledger record that a later line matches exactly.
+ * Rule (b) itself goes over the lines twice: first only pairs whose references also agree, then the rest.
  * Whatever is still unmatched then becomes a break, classified in this order:
  * <ol>
  * <li>DUPLICATE: a second copy (same normalised reference and amount, dates within the window) of a
@@ -41,6 +42,8 @@ public final class Reconciler {
         lines.sort(Comparator.comparingInt(StatementItem::rowNumber));
         List<MatchDecision> matched = new ArrayList<>(book.relatedMatches());
         List<MatchDecision> newMatches = new ArrayList<>();
+        matchPass(Rule.TOLERANCE, lines, ledger, newMatches,
+                line -> ToleranceRule.pickWithAgreeingReference(line, ledger, tolerance));
         matchPass(Rule.TOLERANCE, lines, ledger, newMatches,
                 line -> ToleranceRule.pick(line, ledger, tolerance));
         matchPass(Rule.NORMALIZED_REFERENCE, lines, ledger, newMatches,
