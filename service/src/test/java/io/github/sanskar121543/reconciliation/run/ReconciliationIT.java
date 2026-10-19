@@ -84,6 +84,62 @@ class ReconciliationIT {
     }
 
     @Test
+    void aFuzzyRuleNeverTakesALedgerRecordThatALaterLineMatchesExactly() {
+        long runId = api.createRun("no stealing");
+        api.uploadLedger(runId, """
+                external_id,account_id,booking_date,amount,reference
+                L-1,ACC-1,2026-10-10,100.00,INV-1
+                """);
+        // Row 1 is within the amount tolerance of L-1, but row 2 is L-1 exactly. Matching row 1 greedily
+        // by tolerance would leave the real payment unmatched.
+        api.uploadStatement(runId, """
+                account_id,value_date,amount,reference
+                ACC-1,2026-10-10,100.50,WIRE 55
+                ACC-1,2026-10-10,100.00,INV-1
+                """);
+
+        JsonNode matches = api.get("/v1/runs/" + runId + "/matches").body();
+        assertThat(matches).hasSize(1);
+        assertThat(matches.get(0).get("statementRowNumber").asInt()).isEqualTo(2);
+        assertThat(matches.get(0).get("rule").asString()).isEqualTo("EXACT");
+        assertThat(describe(api.breaks(runId))).containsExactly("MISSING_IN_LEDGER - 1");
+    }
+
+    @Test
+    void theFuzzyRulesMatchFeesAndLateReformattedReferences() {
+        long runId = api.createRun("fuzzy");
+        api.uploadLedger(runId, """
+                external_id,account_id,booking_date,amount,reference
+                L-1,ACC-1,2026-10-01,250.00,INV-000777
+                L-2,ACC-1,2026-10-02,980.00,PO-12
+                """);
+        api.uploadStatement(runId, """
+                account_id,value_date,amount,reference
+                ACC-1,2026-10-02,249.25,WIRE 1188
+                ACC-1,2026-10-20,980.00,po 0012
+                """);
+
+        JsonNode matches = api.get("/v1/runs/" + runId + "/matches").body();
+        assertThat(matches).extracting(m -> m.get("ledgerExternalId").asString() + ":" + m.get("rule").asString())
+                .containsExactlyInAnyOrder("L-1:TOLERANCE", "L-2:NORMALIZED_REFERENCE");
+        assertThat(api.breaks(runId)).isEmpty();
+        assertThat(api.get("/v1/runs/" + runId).body().at("/summary/matchRate").asDouble()).isEqualTo(1.0);
+    }
+
+    @Test
+    void matchesArePagedInIdOrder() {
+        long runId = completedRun();
+        JsonNode first = api.get("/v1/runs/" + runId + "/matches?limit=3").body();
+        long lastId = first.get(2).get("id").asLong();
+        JsonNode rest = api.get("/v1/runs/" + runId + "/matches?afterId=" + lastId).body();
+
+        assertThat(first).hasSize(3);
+        assertThat(rest).hasSize(1);
+        assertThat(rest.get(0).get("id").asLong()).isGreaterThan(lastId);
+        assertThat(api.get("/v1/runs/999999/matches").status()).isEqualTo(404);
+    }
+
+    @Test
     void aBreakShowsBothSidesAgeAndWhyItDidNotMatch() {
         long runId = completedRun();
         JsonNode mismatch = find(api.breaks(runId), "AMOUNT_MISMATCH");
