@@ -1,7 +1,7 @@
 {
   "kind" : "accuracy",
-  "recordedAt" : "2026-10-19T07:13:27Z",
-  "gitCommit" : "2204d66",
+  "recordedAt" : "2026-10-19T07:17:12Z",
+  "gitCommit" : "1d671a3",
   "config" : {
     "seed" : 42,
     "payments" : 10000,
@@ -14,47 +14,47 @@
   "ledgerRecords" : 9982,
   "statementLines" : 9871,
   "matches" : {
-    "predicted" : 9290,
+    "predicted" : 9292,
     "expected" : 9387,
-    "correct" : 9186,
-    "precision" : 0.988805166846071,
-    "recall" : 0.9785874081176095
+    "correct" : 9208,
+    "precision" : 0.9909599655617736,
+    "recall" : 0.9809310748908064
   },
   "breaks" : {
-    "predicted" : 1108,
+    "predicted" : 1102,
     "expected" : 897,
-    "correct" : 793,
-    "precision" : 0.7157039711191335,
-    "recall" : 0.8840579710144928
+    "correct" : 806,
+    "precision" : 0.7313974591651543,
+    "recall" : 0.8985507246376812
   },
   "breaksByType" : {
     "AMOUNT_MISMATCH" : {
-      "predicted" : 165,
+      "predicted" : 167,
       "expected" : 182,
-      "correct" : 165,
+      "correct" : 167,
       "precision" : 1.0,
-      "recall" : 0.9065934065934066
+      "recall" : 0.9175824175824175
     },
     "DUPLICATE" : {
-      "predicted" : 175,
+      "predicted" : 177,
       "expected" : 180,
-      "correct" : 175,
+      "correct" : 177,
       "precision" : 1.0,
-      "recall" : 0.9722222222222222
+      "recall" : 0.9833333333333333
     },
     "MISSING_IN_BANK" : {
-      "predicted" : 445,
+      "predicted" : 441,
       "expected" : 329,
-      "correct" : 268,
-      "precision" : 0.6022471910112359,
-      "recall" : 0.8145896656534954
+      "correct" : 267,
+      "precision" : 0.6054421768707483,
+      "recall" : 0.8115501519756839
     },
     "MISSING_IN_LEDGER" : {
-      "predicted" : 323,
+      "predicted" : 317,
       "expected" : 206,
-      "correct" : 185,
-      "precision" : 0.5727554179566563,
-      "recall" : 0.8980582524271845
+      "correct" : 195,
+      "precision" : 0.6151419558359621,
+      "recall" : 0.9466019417475728
     }
   },
   "scenarios" : {
@@ -64,31 +64,31 @@
     },
     "FEE_DEDUCTED" : {
       "truthEntries" : 386,
-      "correct" : 376
+      "correct" : 386
     },
     "REFORMATTED_ON_TIME" : {
       "truthEntries" : 307,
-      "correct" : 297
+      "correct" : 307
     },
     "REFORMATTED_LATE" : {
       "truthEntries" : 301,
-      "correct" : 284
+      "correct" : 286
     },
     "MISSING_IN_BANK" : {
       "truthEntries" : 225,
-      "correct" : 221
+      "correct" : 220
     },
     "MISSING_IN_LEDGER" : {
       "truthEntries" : 206,
-      "correct" : 185
+      "correct" : 195
     },
     "AMOUNT_MISMATCH" : {
       "truthEntries" : 182,
-      "correct" : 165
+      "correct" : 167
     },
     "DUPLICATE_IN_BANK" : {
       "truthEntries" : 192,
-      "correct" : 189
+      "correct" : 191
     },
     "DUPLICATE_IN_LEDGER" : {
       "truthEntries" : 168,
@@ -104,7 +104,7 @@
     }
   },
   "expectedRuleUsed" : {
-    "correctMatchesWithExpectedRule" : 9186,
-    "madeByExpectedRule" : 9186
+    "correctMatchesWithExpectedRule" : 9208,
+    "madeByExpectedRule" : 9208
   }
 }

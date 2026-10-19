@@ -1,0 +1,110 @@
+{
+  "kind" : "accuracy",
+  "recordedAt" : "2026-10-19T07:17:12Z",
+  "gitCommit" : "1d671a3",
+  "config" : {
+    "seed" : 42,
+    "payments" : 10000,
+    "accounts" : 12,
+    "firstDay" : "2026-09-01",
+    "days" : 30,
+    "toleranceCents" : 100,
+    "dateWindowDays" : 3
+  },
+  "ledgerRecords" : 9982,
+  "statementLines" : 9871,
+  "matches" : {
+    "predicted" : 9292,
+    "expected" : 9387,
+    "correct" : 9208,
+    "precision" : 0.9909599655617736,
+    "recall" : 0.9809310748908064
+  },
+  "breaks" : {
+    "predicted" : 1102,
+    "expected" : 897,
+    "correct" : 806,
+    "precision" : 0.7313974591651543,
+    "recall" : 0.8985507246376812
+  },
+  "breaksByType" : {
+    "AMOUNT_MISMATCH" : {
+      "predicted" : 167,
+      "expected" : 182,
+      "correct" : 167,
+      "precision" : 1.0,
+      "recall" : 0.9175824175824175
+    },
+    "DUPLICATE" : {
+      "predicted" : 177,
+      "expected" : 180,
+      "correct" : 177,
+      "precision" : 1.0,
+      "recall" : 0.9833333333333333
+    },
+    "MISSING_IN_BANK" : {
+      "predicted" : 441,
+      "expected" : 329,
+      "correct" : 267,
+      "precision" : 0.6054421768707483,
+      "recall" : 0.8115501519756839
+    },
+    "MISSING_IN_LEDGER" : {
+      "predicted" : 317,
+      "expected" : 206,
+      "correct" : 195,
+      "precision" : 0.6151419558359621,
+      "recall" : 0.9466019417475728
+    }
+  },
+  "scenarios" : {
+    "CLEAN" : {
+      "truthEntries" : 8000,
+      "correct" : 8000
+    },
+    "FEE_DEDUCTED" : {
+      "truthEntries" : 386,
+      "correct" : 386
+    },
+    "REFORMATTED_ON_TIME" : {
+      "truthEntries" : 307,
+      "correct" : 307
+    },
+    "REFORMATTED_LATE" : {
+      "truthEntries" : 301,
+      "correct" : 286
+    },
+    "MISSING_IN_BANK" : {
+      "truthEntries" : 225,
+      "correct" : 220
+    },
+    "MISSING_IN_LEDGER" : {
+      "truthEntries" : 206,
+      "correct" : 195
+    },
+    "AMOUNT_MISMATCH" : {
+      "truthEntries" : 182,
+      "correct" : 167
+    },
+    "DUPLICATE_IN_BANK" : {
+      "truthEntries" : 192,
+      "correct" : 191
+    },
+    "DUPLICATE_IN_LEDGER" : {
+      "truthEntries" : 168,
+      "correct" : 166
+    },
+    "REFERENCE_LOST_LATE" : {
+      "truthEntries" : 109,
+      "correct" : 0
+    },
+    "LOOKALIKE" : {
+      "truthEntries" : 208,
+      "correct" : 96
+    }
+  },
+  "expectedRuleUsed" : {
+    "correctMatchesWithExpectedRule" : 9208,
+    "madeByExpectedRule" : 9208
+  }
+}
