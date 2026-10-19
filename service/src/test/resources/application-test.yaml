@@ -1,0 +1,13 @@
+matching:
+  instance-id: test
+  security:
+    # SHA-256 of "test-key" (operator) and "readonly-key" (read-only); test-only keys, not secrets.
+    api-keys: "test:operator:62af8704764faf8ea82fc61ce9c4c3908b6cb97d463a634e9e587d7c885db0ef,mcp:readonly:0c88e963410f1f94f5a78faaff79e1b9f7b8a893c79b0b191f03cf2e6f003454"
+
+logging:
+  structured:
+    format:
+      console: ""
+  level:
+    root: WARN
+    io.github.sanskar121543: INFO

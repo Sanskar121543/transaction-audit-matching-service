@@ -1,5 +1,7 @@
 package io.github.sanskar121543.reconciliation.web;
 
+import io.github.sanskar121543.reconciliation.ingest.MalformedFileException;
+import io.github.sanskar121543.reconciliation.ingest.PayloadTooLargeException;
 import java.net.URI;
 import java.util.List;
 import java.util.stream.Stream;
@@ -39,6 +41,19 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     ResponseEntity<ProblemDetail> conflict(ConflictException e) {
         return ResponseEntity.status(HttpStatus.CONFLICT)
                 .body(Problems.of(HttpStatus.CONFLICT, e.type(), "Conflict", e.getMessage()));
+    }
+
+    @ExceptionHandler(MalformedFileException.class)
+    ResponseEntity<ProblemDetail> malformedFile(MalformedFileException e) {
+        return ResponseEntity.badRequest()
+                .body(Problems.of(HttpStatus.BAD_REQUEST, "malformed-file", "The file could not be read",
+                        e.getMessage()));
+    }
+
+    @ExceptionHandler(PayloadTooLargeException.class)
+    ResponseEntity<ProblemDetail> tooLarge(PayloadTooLargeException e) {
+        return ResponseEntity.status(HttpStatus.CONTENT_TOO_LARGE)
+                .body(Problems.of(HttpStatus.CONTENT_TOO_LARGE, "too-large", "Upload too large", e.getMessage()));
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
