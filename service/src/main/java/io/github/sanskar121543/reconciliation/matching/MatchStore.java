@@ -108,6 +108,7 @@ public class MatchStore {
         return jdbc.query("SELECT " + LEDGER_COLUMNS + """
                  FROM ledger_records l
                 WHERE l.run_id = ? AND NOT EXISTS (SELECT 1 FROM matches m WHERE m.ledger_record_id = l.id)
+                ORDER BY l.id
                 """, LEDGER, runId);
     }
 
@@ -115,6 +116,7 @@ public class MatchStore {
         return jdbc.query("SELECT " + LINE_COLUMNS + """
                  FROM statement_lines s
                 WHERE s.run_id = ? AND NOT EXISTS (SELECT 1 FROM matches m WHERE m.statement_line_id = s.id)
+                ORDER BY s.row_number
                 """, LINE, runId);
     }
 
@@ -132,6 +134,7 @@ public class MatchStore {
                     WHERE m.run_id = ?
                       AND (l.reference = ANY(?) OR l.normalized_reference = ANY(?)
                            OR s.reference = ANY(?) OR s.normalized_reference = ANY(?))
+                    ORDER BY m.id
                     """);
             Array refs = array(connection, "text", references.toArray());
             ps.setLong(1, runId);

@@ -27,7 +27,10 @@ class ReconcilerTest {
         assertThat(only.line()).isNull();
         assertThat(only.exposureCents()).isEqualTo(40_00);
         assertThat(only.itemDate()).isEqualTo(record.date());
-        assertThat(only.trace()).extracting(RuleCheck::result).containsExactly(Result.NO_CANDIDATE);
+        assertThat(only.trace()).extracting(RuleCheck::rule)
+                .containsExactly(Rule.EXACT, Rule.TOLERANCE, Rule.NORMALIZED_REFERENCE);
+        assertThat(only.trace()).extracting(RuleCheck::result)
+                .containsExactly(Result.NO_CANDIDATE, Result.NO_CANDIDATE, Result.NO_CANDIDATE);
     }
 
     @Test
@@ -40,7 +43,8 @@ class ReconcilerTest {
         assertThat(only.line()).isEqualTo(fee);
         assertThat(only.ledger()).isNull();
         assertThat(only.exposureCents()).isEqualTo(2_50);
-        assertThat(only.trace()).extracting(RuleCheck::result).containsExactly(Result.NO_REFERENCE);
+        assertThat(only.trace()).extracting(RuleCheck::result)
+                .containsExactly(Result.NO_REFERENCE, Result.NO_CANDIDATE, Result.NO_REFERENCE);
     }
 
     @Test
@@ -69,7 +73,8 @@ class ReconcilerTest {
         assertThat(only.type()).isEqualTo(BreakType.DUPLICATE);
         assertThat(only.line()).isEqualTo(copy);
         assertThat(only.verdict()).contains("Repeats statement row 1");
-        assertThat(only.trace()).extracting(RuleCheck::result).containsExactly(Result.CANDIDATE_ALREADY_MATCHED);
+        assertThat(only.trace()).extracting(RuleCheck::result).containsExactly(Result.CANDIDATE_ALREADY_MATCHED,
+                Result.NO_CANDIDATE, Result.CANDIDATE_ALREADY_MATCHED);
     }
 
     @Test
@@ -108,6 +113,72 @@ class ReconcilerTest {
 
         assertThat(breaks).extracting(BreakDecision::type)
                 .containsExactlyInAnyOrder(BreakType.DUPLICATE, BreakType.MISSING_IN_BANK);
+    }
+
+    @Test
+    void theToleranceRuleRunsBeforeTheNormalizedReferenceRule() {
+        LedgerItem record = ledger(1, 10, 100_00, "INV-8");
+        StatementItem line = line(1, 11, 100_00, "inv 8");
+
+        Reconciler.Outcome outcome = reconcile(List.of(record), List.of(line), List.of());
+
+        assertThat(outcome.breaks()).isEmpty();
+        assertThat(outcome.matches()).containsExactly(new MatchDecision(record, line, Rule.TOLERANCE));
+    }
+
+    @Test
+    void theNormalizedReferenceRuleMatchesWhatTheDateWindowLeftOut() {
+        LedgerItem record = ledger(1, 1, 100_00, "INV-8");
+        StatementItem late = line(1, 20, 100_00, "inv 8");
+
+        Reconciler.Outcome outcome = reconcile(List.of(record), List.of(late), List.of());
+
+        assertThat(outcome.matches()).containsExactly(new MatchDecision(record, late, Rule.NORMALIZED_REFERENCE));
+    }
+
+    @Test
+    void aCopyOfALineTheFuzzyRulesMatchedIsStillADuplicate() {
+        LedgerItem record = ledger(1, 10, 100_00, "INV-8");
+        StatementItem first = line(1, 10, 99_50, "INV-8");
+        StatementItem copy = line(2, 10, 99_50, "INV-8");
+
+        Reconciler.Outcome outcome = reconcile(List.of(record), List.of(first, copy), List.of());
+
+        assertThat(outcome.matches()).containsExactly(new MatchDecision(record, first, Rule.TOLERANCE));
+        assertThat(single(outcome).type()).isEqualTo(BreakType.DUPLICATE);
+        assertThat(single(outcome).line()).isEqualTo(copy);
+    }
+
+    @Test
+    void explainsTheClosestCandidateForEachRule() {
+        LedgerItem record = ledger(1, 1, 100_00, "INV-8");
+        StatementItem line = line(1, 20, 103_00, "inv 8");
+
+        BreakDecision mismatch = single(reconcile(List.of(record), List.of(line), List.of()));
+
+        assertThat(mismatch.type()).isEqualTo(BreakType.AMOUNT_MISMATCH);
+        RuleCheck exact = mismatch.trace().get(0);
+        RuleCheck tolerance = mismatch.trace().get(1);
+        RuleCheck normalized = mismatch.trace().get(2);
+        assertThat(exact.result()).isEqualTo(Result.NO_CANDIDATE);
+        assertThat(tolerance.result()).isEqualTo(Result.OUTSIDE_TOLERANCE);
+        assertThat(tolerance.ledgerRecordId()).isEqualTo(1L);
+        assertThat(tolerance.amountDifferenceCents()).isEqualTo(-3_00);
+        assertThat(tolerance.dateDifferenceDays()).isEqualTo(19);
+        assertThat(tolerance.detail()).isEqualTo(
+                "The closest unmatched amount is Ledger record #1, which differs by 3.00 (tolerance 1.00).");
+        assertThat(normalized.result()).isEqualTo(Result.OUTSIDE_TOLERANCE);
+    }
+
+    @Test
+    void explainsWhenOnlyTheDateWindowWasMissed() {
+        BreakDecision missing = reconcile(List.of(ledger(1, 1, 100_00, "A")), List.of(line(1, 9, 100_00, "B")),
+                List.of()).breaks().getFirst();
+
+        RuleCheck tolerance = missing.trace().get(1);
+        assertThat(tolerance.result()).isEqualTo(Result.OUTSIDE_DATE_WINDOW);
+        assertThat(tolerance.detail()).isEqualTo(
+                "Ledger record #1 is within the amount tolerance, but 8 days apart (window 3 days).");
     }
 
     @Test

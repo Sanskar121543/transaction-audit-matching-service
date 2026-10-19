@@ -7,10 +7,13 @@ import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Function;
 
 /**
- * The end-of-run step for one account, once every statement line is in. Whatever is still unmatched
- * becomes a break, classified in this order:
+ * The end-of-run step for one account, once every statement line is in. The exact rule (a) already ran
+ * on each line as it arrived; this runs rule (b), then rule (c), over every line still unmatched. Running
+ * the fuzzy rules only now means they can never take a ledger record that a later line matches exactly.
+ * Whatever is still unmatched then becomes a break, classified in this order:
  * <ol>
  * <li>DUPLICATE: a second copy (same normalised reference and amount, dates within the window) of a
  * record that is matched;</li>
@@ -38,8 +41,13 @@ public final class Reconciler {
         lines.sort(Comparator.comparingInt(StatementItem::rowNumber));
         List<MatchDecision> matched = new ArrayList<>(book.relatedMatches());
         List<MatchDecision> newMatches = new ArrayList<>();
+        matchPass(Rule.TOLERANCE, lines, ledger, newMatches,
+                line -> ToleranceRule.pick(line, ledger, tolerance));
+        matchPass(Rule.NORMALIZED_REFERENCE, lines, ledger, newMatches,
+                line -> NormalizedReferenceRule.pick(line, ledger, tolerance));
+        matched.addAll(newMatches);
 
-        RuleTrace trace = new RuleTrace(List.copyOf(ledger), List.copyOf(lines), List.copyOf(matched));
+        RuleTrace trace = new RuleTrace(tolerance, List.copyOf(ledger), List.copyOf(lines), List.copyOf(matched));
         List<BreakDecision> breaks = new ArrayList<>();
         classifyDuplicates(lines, ledger, matched, trace, breaks);
         classifyAmountMismatches(lines, ledger, trace, breaks);
@@ -54,6 +62,19 @@ public final class Reconciler {
                     trace.forLedger(record)));
         }
         return new Outcome(newMatches, breaks);
+    }
+
+    private static void matchPass(Rule rule, List<StatementItem> lines, List<LedgerItem> ledger,
+            List<MatchDecision> matches, Function<StatementItem, Optional<LedgerItem>> pick) {
+        for (Iterator<StatementItem> it = lines.iterator(); it.hasNext();) {
+            StatementItem line = it.next();
+            Optional<LedgerItem> match = pick.apply(line);
+            if (match.isPresent()) {
+                matches.add(new MatchDecision(match.get(), line, rule));
+                ledger.remove(match.get());
+                it.remove();
+            }
+        }
     }
 
     private void classifyDuplicates(List<StatementItem> lines, List<LedgerItem> ledger, List<MatchDecision> matched,
@@ -111,7 +132,8 @@ public final class Reconciler {
             breaks.add(new BreakDecision(BreakType.AMOUNT_MISMATCH, line.accountId(), record, line, difference,
                     record.date(),
                     "Ledger record #" + record.id() + " and statement row " + line.rowNumber()
-                            + " have the same reference but their amounts differ by " + Money.format(difference) + ".",
+                            + " have the same reference but their amounts differ by " + Money.format(difference)
+                            + ", more than the " + Money.format(tolerance.amountCents()) + " tolerance.",
                     trace.forLine(line)));
             ledger.remove(record);
             it.remove();
