@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+	<modelVersion>4.0.0</modelVersion>
+	<parent>
+		<groupId>org.springframework.boot</groupId>
+		<artifactId>spring-boot-starter-parent</artifactId>
+		<version>4.1.1</version>
+		<relativePath/>
+	</parent>
+	<groupId>io.github.sanskar121543</groupId>
+	<artifactId>transaction-audit-matching-service-parent</artifactId>
+	<version>0.0.1-SNAPSHOT</version>
+	<packaging>pom</packaging>
+	<name>transaction-audit-matching-service</name>
+	<description>Compares a ledger against a bank statement, finds every mismatch and tracks its resolution</description>
+
+	<modules>
+		<module>service</module>
+	</modules>
+
+	<properties>
+		<java.version>21</java.version>
+		<commons-csv.version>1.14.1</commons-csv.version>
+	</properties>
+
+	<dependencyManagement>
+		<dependencies>
+			<dependency>
+				<groupId>org.apache.commons</groupId>
+				<artifactId>commons-csv</artifactId>
+				<version>${commons-csv.version}</version>
+			</dependency>
+		</dependencies>
+	</dependencyManagement>
+</project>

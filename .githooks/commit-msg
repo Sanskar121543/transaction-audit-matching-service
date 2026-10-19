@@ -1,0 +1,7 @@
+#!/bin/sh
+# Commits in this repo are authored by the owner only: no AI attribution trailers or footers.
+# Enabled per clone with: git config core.hooksPath .githooks
+if grep -qiE 'co-authored-by|generated with' "$1"; then
+    echo "commit-msg hook: the message contains \"Co-Authored-By\" or \"Generated with\"; remove it." >&2
+    exit 1
+fi

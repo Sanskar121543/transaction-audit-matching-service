@@ -1,0 +1,29 @@
+target/
+.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+.env
+*.log
+
+# Generated data and benchmark scratch files (committed results live in results/)
+data/
+*.tmp
+
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/
+.classpath
+.factorypath
+.project
+.settings/
+.DS_Store
+
+# Terraform: state, plans, variables and provider downloads stay local (.terraform.lock.hcl is committed)
+infra/**/.terraform/
+infra/**/*.tfstate
+infra/**/*.tfstate.*
+infra/**/*.tfplan
+infra/**/terraform.tfvars
