@@ -1,6 +1,7 @@
 package io.github.sanskar121543.reconciliation.matching;
 
 import io.github.sanskar121543.reconciliation.common.InstanceInfo;
+import io.github.sanskar121543.reconciliation.common.ReconciliationMetrics;
 import io.github.sanskar121543.reconciliation.ingest.StatementLineInput;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -19,10 +20,12 @@ public class StatementProcessor {
 
     private final MatchStore store;
     private final InstanceInfo instance;
+    private final ReconciliationMetrics metrics;
 
-    public StatementProcessor(MatchStore store, InstanceInfo instance) {
+    public StatementProcessor(MatchStore store, InstanceInfo instance, ReconciliationMetrics metrics) {
         this.store = store;
         this.instance = instance;
+        this.metrics = metrics;
     }
 
     /** Returns the lines that were new; lines already stored are skipped, so processing twice is harmless. */
@@ -50,6 +53,10 @@ public class StatementProcessor {
             }
         }
         store.insertMatches(runId, matches, instance.id());
+        metrics.linesStored(fresh.size());
+        if (!matches.isEmpty()) {
+            metrics.matched(Map.of(Rule.EXACT.name(), (long) matches.size()));
+        }
         return fresh;
     }
 }

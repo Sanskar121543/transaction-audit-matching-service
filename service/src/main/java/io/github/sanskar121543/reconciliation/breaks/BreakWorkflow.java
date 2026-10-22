@@ -1,5 +1,6 @@
 package io.github.sanskar121543.reconciliation.breaks;
 
+import io.github.sanskar121543.reconciliation.common.ReconciliationMetrics;
 import io.github.sanskar121543.reconciliation.web.ApiCaller;
 import io.github.sanskar121543.reconciliation.web.ConflictException;
 import io.github.sanskar121543.reconciliation.web.CorrelationIdFilter;
@@ -21,12 +22,15 @@ public class BreakWorkflow {
     private final BreakNoteRepository notes;
     private final BreakQueries queries;
     private final JdbcTemplate jdbc;
+    private final ReconciliationMetrics metrics;
 
-    public BreakWorkflow(BreakRepository breaks, BreakNoteRepository notes, BreakQueries queries, JdbcTemplate jdbc) {
+    public BreakWorkflow(BreakRepository breaks, BreakNoteRepository notes, BreakQueries queries, JdbcTemplate jdbc,
+            ReconciliationMetrics metrics) {
         this.breaks = breaks;
         this.notes = notes;
         this.queries = queries;
         this.jdbc = jdbc;
+        this.metrics = metrics;
     }
 
     @Transactional
@@ -35,6 +39,7 @@ public class BreakWorkflow {
         require(b, BreakStatus.OPEN, "start investigating");
         b.startInvestigating(Objects.requireNonNullElse(request.assignee(),
                 Objects.requireNonNullElse(b.getAssignee(), caller.clientId())));
+        metrics.breakChanged("STATUS_CHANGED", b.getStatus().name());
         return saved(b, request.note(), caller);
     }
 
@@ -43,6 +48,7 @@ public class BreakWorkflow {
         Break b = load(id, request.version(), caller);
         require(b, BreakStatus.INVESTIGATING, "resolve");
         b.resolve(request.resolution());
+        metrics.breakChanged("STATUS_CHANGED", b.getStatus().name());
         return saved(b, request.note(), caller);
     }
 
@@ -51,6 +57,7 @@ public class BreakWorkflow {
         Break b = load(id, request.version(), caller);
         require(b, BreakStatus.RESOLVED, "reopen");
         b.reopen();
+        metrics.breakChanged("STATUS_CHANGED", b.getStatus().name());
         return saved(b, request.note(), caller);
     }
 
@@ -61,6 +68,7 @@ public class BreakWorkflow {
             throw new ConflictException("break-resolved", "Break " + id + " is RESOLVED; reopen it before reassigning it");
         }
         b.assign(request.assignee());
+        metrics.breakChanged("ASSIGNED", b.getStatus().name());
         return saved(b, null, caller);
     }
 
@@ -72,6 +80,7 @@ public class BreakWorkflow {
             throw notFound(id);
         }
         BreakNote note = notes.saveAndFlush(new BreakNote(id, caller.clientId(), request.body().strip()));
+        metrics.breakChanged("NOTE_ADDED", "none");
         return queries.noteEvent(note.getId()).orElseThrow();
     }
 
@@ -101,6 +110,7 @@ public class BreakWorkflow {
         breaks.flush();
         if (note != null) {
             notes.saveAndFlush(new BreakNote(b.getId(), caller.clientId(), note.strip()));
+            metrics.breakChanged("NOTE_ADDED", "none");
         }
         return queries.view(b.getId()).orElseThrow();
     }

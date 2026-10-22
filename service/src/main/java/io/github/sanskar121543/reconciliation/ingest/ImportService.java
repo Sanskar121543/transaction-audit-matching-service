@@ -1,5 +1,6 @@
 package io.github.sanskar121543.reconciliation.ingest;
 
+import io.github.sanskar121543.reconciliation.common.ReconciliationMetrics;
 import io.github.sanskar121543.reconciliation.matching.RunCompletion;
 import io.github.sanskar121543.reconciliation.run.Run;
 import io.github.sanskar121543.reconciliation.run.RunRepository;
@@ -35,14 +36,16 @@ public class ImportService {
     private final StatementPublisher publisher;
     private final RunCompletion completion;
     private final TransactionTemplate transactions;
+    private final ReconciliationMetrics metrics;
 
     public ImportService(RunRepository runs, ImportStore imports, StatementPublisher publisher,
-            RunCompletion completion, TransactionTemplate transactions) {
+            RunCompletion completion, TransactionTemplate transactions, ReconciliationMetrics metrics) {
         this.runs = runs;
         this.imports = imports;
         this.publisher = publisher;
         this.completion = completion;
         this.transactions = transactions;
+        this.metrics = metrics;
     }
 
     public void requireRun(long runId) {
@@ -69,6 +72,7 @@ public class ImportService {
             throw new ConflictException("run-not-receiving", "Run " + runId + " is " + run.getStatus());
         }
         imports.insertLedger(runId, file.accepted());
+        metrics.imported("ledger", file.accepted().size(), file.rowsRejected());
         return imports.insert(runId, Side.LEDGER, file, caller.clientId());
     }
 
@@ -111,6 +115,7 @@ public class ImportService {
                     "Upload the ledger file before the statement: matching needs the whole ledger.");
         }
         ImportReport report = imports.insert(runId, Side.STATEMENT, file, caller.clientId());
+        metrics.imported("statement", file.accepted().size(), file.rowsRejected());
         run.startMatching();
         if (file.accepted().isEmpty()) {
             // No line will ever reach a worker, so nothing else would complete the run.

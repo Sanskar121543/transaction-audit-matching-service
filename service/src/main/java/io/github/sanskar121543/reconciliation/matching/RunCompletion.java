@@ -1,8 +1,10 @@
 package io.github.sanskar121543.reconciliation.matching;
 
 import io.github.sanskar121543.reconciliation.common.InstanceInfo;
+import io.github.sanskar121543.reconciliation.common.ReconciliationMetrics;
 import io.github.sanskar121543.reconciliation.run.Run;
 import java.time.Clock;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -22,11 +24,13 @@ public class RunCompletion {
     private final MatchStore store;
     private final InstanceInfo instance;
     private final Clock clock;
+    private final ReconciliationMetrics metrics;
 
-    public RunCompletion(MatchStore store, InstanceInfo instance, Clock clock) {
+    public RunCompletion(MatchStore store, InstanceInfo instance, Clock clock, ReconciliationMetrics metrics) {
         this.store = store;
         this.instance = instance;
         this.clock = clock;
+        this.metrics = metrics;
     }
 
     public record Summary(int matches, int breaks) {
@@ -35,6 +39,7 @@ public class RunCompletion {
     /** The caller holds the run's row lock, so no line can be added while this runs. */
     @Transactional(propagation = Propagation.MANDATORY)
     public Summary complete(Run run) {
+        long started = System.nanoTime();
         long runId = run.getId();
         List<LedgerItem> ledger = store.unmatchedLedger(runId);
         List<StatementItem> lines = store.unmatchedLines(runId);
@@ -72,6 +77,9 @@ public class RunCompletion {
         store.insertBreaks(runId, breaks);
         store.clearMatchingProblem(runId);
         run.complete(clock.instant());
+        metrics.matched(matches.stream().collect(Collectors.groupingBy(m -> m.rule().name(), Collectors.counting())));
+        metrics.runCompleted(breaks.stream().collect(Collectors.groupingBy(b -> b.type().name(), Collectors.counting())),
+                Duration.ofNanos(System.nanoTime() - started));
         return new Summary(matches.size(), breaks.size());
     }
 

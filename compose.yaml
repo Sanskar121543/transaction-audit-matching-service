@@ -3,7 +3,7 @@ name: transaction-audit-matching
 # Profiles:
 #   (none)           postgres + kafka only: run the app from your IDE with ./mvnw -pl service spring-boot:run
 #   --profile lite   + app1 behind nginx, kafbat-ui (daily work)
-#   --profile full   + app2 (tests, demos and the benchmark)
+#   --profile full   + app2, Prometheus and Grafana (tests, demos and the benchmark)
 #
 # Never run this stack at the same time as the Payments Ledger Service's: together they do not fit in the
 # memory Docker has on a 16 GB laptop.
@@ -139,6 +139,45 @@ services:
     depends_on:
       app1:
         condition: service_healthy
+
+  # Scrapes each app instance's /actuator/prometheus on the compose network (nginx never exposes /actuator).
+  prometheus:
+    image: prom/prometheus:v3.13.4
+    profiles: [full]
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=2d
+    ports:
+      - "127.0.0.1:${PROMETHEUS_PORT:-9091}:9090"
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    mem_limit: 256m
+    memswap_limit: 256m
+
+  grafana:
+    image: grafana/grafana:13.2.4
+    profiles: [full]
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env}
+      # Read-only viewing without a login, on loopback only; editing still needs the admin password.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+      # Grafana otherwise downloads its bundled app plugins at every start: no network needed, faster start.
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+    ports:
+      - "127.0.0.1:${GRAFANA_PORT:-3001}:3000"
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    # Grafana 13 uses about 385 MB once running here (measured); with 256 MB it stalled during start-up.
+    mem_limit: 512m
+    memswap_limit: 512m
+    depends_on:
+      - prometheus
 
 volumes:
   pgdata:

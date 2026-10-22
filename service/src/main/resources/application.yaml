@@ -73,6 +73,10 @@ management:
     tags:
       # Not "instance": Prometheus already uses that label for the scrape target.
       app_instance: ${matching.instance-id}
+    distribution:
+      # Buckets, so Grafana can compute API latency percentiles across both instances.
+      percentiles-histogram:
+        http.server.requests: true
 
 logging:
   structured:
