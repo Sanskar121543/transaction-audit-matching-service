@@ -1,0 +1,29 @@
+spring:
+  application:
+    name: mcp-server
+  config:
+    # Run from the repo root or from mcp-server/: the repo's .env (gitignored) supplies the keys.
+    import: optional:file:.env[.properties],optional:file:../.env[.properties]
+
+server:
+  # Loopback only unless told otherwise (compose sets 0.0.0.0 inside the container and maps it to loopback).
+  address: ${MCP_HTTP_ADDRESS:127.0.0.1}
+  port: ${MCP_HTTP_PORT:8090}
+  shutdown: graceful
+
+mcp:
+  service-url: ${SERVICE_URL:http://localhost:${HTTP_PORT:8089}}
+  # The read-only key: the service refuses every change made with it.
+  api-key: ${MCP_API_KEY:${READONLY_API_KEY:}}
+  timeout: 10s
+  max-result-chars: 100000
+  http:
+    token: ${MCP_HTTP_TOKEN:}
+    allowed-hosts: ${MCP_ALLOWED_HOSTS:localhost,127.0.0.1}
+    allowed-origins: ${MCP_ALLOWED_ORIGINS:http://localhost,http://127.0.0.1}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health

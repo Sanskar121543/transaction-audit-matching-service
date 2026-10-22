@@ -18,11 +18,14 @@
 	<modules>
 		<module>generator</module>
 		<module>service</module>
+		<!-- After service: its integration tests run the service jar that module just packaged. -->
+		<module>mcp-server</module>
 	</modules>
 
 	<properties>
 		<java.version>21</java.version>
 		<commons-csv.version>1.14.1</commons-csv.version>
+		<mcp-sdk.version>2.1.0</mcp-sdk.version>
 	</properties>
 
 	<dependencyManagement>

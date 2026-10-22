@@ -2,7 +2,7 @@ name: transaction-audit-matching
 
 # Profiles:
 #   (none)           postgres + kafka only: run the app from your IDE with ./mvnw -pl service spring-boot:run
-#   --profile lite   + app1 behind nginx, kafbat-ui (daily work)
+#   --profile lite   + app1 behind nginx, kafbat-ui, the MCP server (daily work)
 #   --profile full   + app2, Prometheus and Grafana (tests, demos and the benchmark)
 #
 # Never run this stack at the same time as the Payments Ledger Service's: together they do not fit in the
@@ -21,7 +21,9 @@ x-app-env: &app-env
     -XX:MaxDirectMemorySize=64m -XX:+ExitOnOutOfMemoryError
 
 x-app: &app
-  build: .
+  build:
+    context: .
+    target: app
   image: transaction-audit-matching-service:local
   mem_limit: 768m
   memswap_limit: 768m
@@ -139,6 +141,35 @@ services:
     depends_on:
       app1:
         condition: service_healthy
+
+  # The read-only MCP server over Streamable HTTP, for AI clients that connect to a URL (MCP_GUIDE.md). It
+  # reaches the service through nginx with the read-only key, and wants a bearer token from its own clients.
+  mcp:
+    build:
+      context: .
+      target: mcp
+    image: transaction-audit-matching-mcp:local
+    profiles: [lite, full]
+    environment:
+      SERVICE_URL: http://nginx:80
+      MCP_API_KEY: ${READONLY_API_KEY:?set READONLY_API_KEY in .env}
+      MCP_HTTP_TOKEN: ${MCP_HTTP_TOKEN:?set MCP_HTTP_TOKEN in .env}
+      # Inside the container; the port below is published on the host's loopback only.
+      MCP_HTTP_ADDRESS: 0.0.0.0
+      JAVA_OPTS: -Xms64m -Xmx160m -XX:+UseSerialGC -XX:MaxMetaspaceSize=96m -XX:+ExitOnOutOfMemoryError
+    ports:
+      - "127.0.0.1:${MCP_PORT:-8095}:8090"
+    mem_limit: 384m
+    memswap_limit: 384m
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8090/actuator/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+    depends_on:
+      nginx:
+        condition: service_started
 
   # Scrapes each app instance's /actuator/prometheus on the compose network (nginx never exposes /actuator).
   prometheus:

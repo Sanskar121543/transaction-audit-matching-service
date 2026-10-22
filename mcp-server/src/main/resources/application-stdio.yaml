@@ -1,0 +1,4 @@
+# stdout is the MCP channel in stdio mode: anything else written there would corrupt the protocol.
+logging:
+  threshold:
+    console: "off"

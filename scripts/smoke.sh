@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # End-to-end check against a running stack, through nginx: a run, a ledger, a statement that goes through
 # Kafka, the run completing with the expected matches and breaks, a replayed upload, the dashboard and its
-# event stream, and (full profile) Prometheus scraping every instance and Grafana's provisioned dashboard.
+# event stream, the MCP server's tools, and (full profile) Prometheus scraping every instance and Grafana's
+# provisioned dashboard.
 # Usage: scripts/smoke.sh [base-url]   (reads OPERATOR_API_KEY from .env)
 # EXPECT_INSTANCES (default 2) is how many different app instances must answer: 1 for the lite profile.
 set -euo pipefail
@@ -55,6 +56,26 @@ curl -fsS "$BASE/" | grep -q "<title>Reconciliation Dashboard</title>" || { echo
 event=$(curl -sS -N --max-time 5 -H "$KEY_HEADER" "$BASE/v1/stream" 2>/dev/null | grep -m1 '^event:' || true)
 [ "$event" = "event:runs" ] || { echo "FAIL: event stream sent '$event'"; exit 1; }
 curl -fsS -H "$KEY_HEADER" "$BASE/v1/runs/$run/breakdown" | grep -q '"byType"' || { echo "FAIL: breakdown"; exit 1; }
+
+# The MCP server (lite and full): a bearer token is required, and with it the tools answer from the service.
+if docker compose ps --services --status running 2>/dev/null | grep -qx mcp; then
+    mcp="http://localhost:${MCP_PORT:-8095}/mcp"
+    rpc() { curl -sS "$mcp" -H "Authorization: Bearer $MCP_HTTP_TOKEN" -H 'Content-Type: application/json' \
+        -H 'Accept: application/json, text/event-stream' "$@"; }
+    init='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"smoke","version":"1"}}}'
+    refused=$(curl -sS -o /dev/null -w '%{http_code}' "$mcp" -H 'Content-Type: application/json' -d "$init")
+    [ "$refused" = "401" ] || { echo "FAIL: MCP without a token answered $refused"; exit 1; }
+    session=$(rpc -D - -o /dev/null -d "$init" | tr -d '\r' | sed -n 's/^mcp-session-id: //Ip')
+    [ -n "$session" ] || { echo "FAIL: MCP initialize gave no session"; exit 1; }
+    rpc -o /dev/null -H "Mcp-Session-Id: $session" -d '{"jsonrpc":"2.0","method":"notifications/initialized"}'
+    tools=$(rpc -H "Mcp-Session-Id: $session" -d '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
+        | grep -o '"name":"[a-z_]*"' | sort -u | wc -l)
+    [ "$tools" -eq 7 ] || { echo "FAIL: MCP lists $tools tools"; exit 1; }
+    answer=$(rpc -H "Mcp-Session-Id: $session" \
+        -d "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\"name\":\"get_run\",\"arguments\":{\"runId\":$run}}}")
+    echo "$answer" | grep -q '\\"label\\":\\"smoke\\"' || { echo "FAIL: MCP get_run: $answer"; exit 1; }
+    echo "mcp_tools=$tools mcp_get_run=ok"
+fi
 
 # With the full profile: Prometheus scrapes every instance, and Grafana has the provisioned dashboard.
 if docker compose ps --services --status running 2>/dev/null | grep -qx prometheus; then
