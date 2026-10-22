@@ -36,4 +36,12 @@ class ApiKeysTest {
         assertThatThrownBy(() -> new ApiKeys("ops:operator:" + OPS_HASH + ",ops:readonly:" + MCP_HASH))
                 .isInstanceOf(IllegalStateException.class);
     }
+
+    @Test
+    void refusesClientIdsTheAuditTrailCouldNotRecord() {
+        assertThatThrownBy(() -> new ApiKeys("o ps:operator:" + OPS_HASH)).hasMessageContaining("client id");
+        assertThatThrownBy(() -> new ApiKeys("ops'--:operator:" + OPS_HASH)).hasMessageContaining("client id");
+        assertThatThrownBy(() -> new ApiKeys("o".repeat(65) + ":operator:" + OPS_HASH))
+                .hasMessageContaining("client id");
+    }
 }

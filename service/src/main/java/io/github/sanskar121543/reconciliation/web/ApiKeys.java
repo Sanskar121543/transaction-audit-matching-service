@@ -7,11 +7,14 @@ import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Optional;
+import java.util.regex.Pattern;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 @Component
 public class ApiKeys {
+
+    private static final Pattern CLIENT_ID = Pattern.compile("[A-Za-z0-9._@-]{1,64}");
 
     private final List<Entry> entries;
 
@@ -51,6 +54,10 @@ public class ApiKeys {
             String[] parts = trimmed.split(":");
             if (parts.length != 3 || parts[0].isBlank()) {
                 throw new IllegalStateException("API key entries must look like clientId:role:sha256hex");
+            }
+            // The client id is "who" in the audit trail and a break's default assignee: same charset as both.
+            if (!CLIENT_ID.matcher(parts[0]).matches()) {
+                throw new IllegalStateException("API key client id '" + parts[0] + "' must match " + CLIENT_ID);
             }
             byte[] hash = HexFormat.of().parseHex(parts[2]);
             if (hash.length != 32) {
