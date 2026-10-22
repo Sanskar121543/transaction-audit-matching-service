@@ -20,6 +20,7 @@ import tools.jackson.databind.json.JsonMapper;
  * generate       [--seed 42] [--payments 10000] [--out data/generated]  write ledger.csv, statement.csv, truth.json
  * statement-for  --ledger FILE [--seed 42] [--out data/simulated]       play the bank for an existing ledger file
  * accuracy       [--seed 42] [--payments 10000] [--results results/accuracy]
+ * benchmark      [--seed 42] [--payments 101000] [--results results/benchmark]   at least 100,000 rows per file
  * </pre>
  * The service URL comes from BASE_URL (default http://localhost:8089) and the key from OPERATOR_API_KEY, so
  * the key never appears in a process list.
@@ -56,6 +57,16 @@ public final class Main {
                 Path results = Path.of(options.getOrDefault("results", "results/accuracy"));
                 AccuracyReport.write(recorded, results);
                 System.out.println(AccuracyReport.markdown(recorded));
+                System.out.println("Written to " + results.resolve("latest.md"));
+            }
+            case "benchmark" -> {
+                GeneratorConfig large = GeneratorConfig.defaults(seed,
+                        Integer.parseInt(options.getOrDefault("payments", "101000")));
+                ThroughputBenchmark.Recorded recorded = ThroughputBenchmark.run(service(), large,
+                        env("GIT_SHA", "unknown"), env("TOPOLOGY", "unknown"), env("HARDWARE_NOTE", "not recorded"));
+                Path results = Path.of(options.getOrDefault("results", "results/benchmark"));
+                ThroughputBenchmark.write(recorded, results);
+                System.out.println(ThroughputBenchmark.markdown(recorded));
                 System.out.println("Written to " + results.resolve("latest.md"));
             }
             default -> usage();
@@ -105,7 +116,7 @@ public final class Main {
     }
 
     private static void usage() {
-        System.out.println("usage: generate|statement-for|accuracy [--seed N] [--payments N] [--ledger FILE]"
+        System.out.println("usage: generate|statement-for|accuracy|benchmark [--seed N] [--payments N] [--ledger FILE]"
                 + " [--out DIR] [--results DIR]");
     }
 }

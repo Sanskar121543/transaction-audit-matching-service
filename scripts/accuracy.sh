@@ -12,7 +12,9 @@ set -a; source .env; set +a
 
 export BASE_URL="${BASE_URL:-http://localhost:${HTTP_PORT:-8089}}"
 # -dirty if anything outside results/ differs from HEAD: the numbers then belong to uncommitted code.
-export GIT_SHA="$(git rev-parse --short HEAD)$(git diff --quiet HEAD -- . ':!results' || echo '-dirty')"
+# Untracked files count too: the service under test is built from the working tree.
+dirty=$([ -z "$(git status --porcelain -- . ':!results')" ] || echo -dirty)
+export GIT_SHA="$(git rev-parse --short HEAD)$dirty"
 
 ./mvnw -B -q -pl generator package -DskipTests
 java -jar generator/target/generator-0.0.1-SNAPSHOT-cli.jar accuracy \

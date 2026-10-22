@@ -12,6 +12,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -19,6 +20,9 @@ import tools.jackson.databind.json.JsonMapper;
 public final class ServiceClient {
 
     private static final JsonMapper JSON = JsonMapper.builder().build();
+    private static final Set<Integer> RETRYABLE = Set.of(502, 503, 504);
+    private static final int ATTEMPTS = 5;
+    private static final Duration STALLED = Duration.ofMinutes(2);
 
     private final String baseUrl;
     private final String apiKey;
@@ -43,7 +47,7 @@ public final class ServiceClient {
 
     /** {@code side} is "ledger" or "statement". Returns the rejection report. */
     public JsonNode upload(long runId, String side, String csv) {
-        HttpResponse<String> response = send(request("/v1/runs/" + runId + "/" + side)
+        HttpResponse<String> response = sendRetrying(request("/v1/runs/" + runId + "/" + side)
                 .header("Content-Type", "text/csv")
                 .timeout(Duration.ofMinutes(5))
                 .POST(HttpRequest.BodyPublishers.ofString(csv)));
@@ -51,28 +55,58 @@ public final class ServiceClient {
     }
 
     public JsonNode run(long runId) {
-        return expect(send(request("/v1/runs/" + runId).GET()), 200);
+        return expect(sendRetrying(request("/v1/runs/" + runId).GET()), 200);
     }
 
     public JsonNode waitForCompletion(long runId, Duration timeout) {
+        return waitForCompletion(runId, timeout, Duration.ofMillis(200));
+    }
+
+    /**
+     * Also gives up early when no statement line has been stored for {@link #STALLED}: the run then needs its
+     * statement uploaded again (statementQueuedAt is null) or has a matchingProblem, and waiting longer will
+     * not change that.
+     */
+    public JsonNode waitForCompletion(long runId, Duration timeout, Duration pollInterval) {
         Instant deadline = Instant.now().plus(timeout);
+        long stored = -1;
+        Instant lastProgress = Instant.now();
         while (true) {
             JsonNode run = run(runId);
             if ("COMPLETED".equals(run.get("status").asString())) {
                 return run;
             }
-            if (Instant.now().isAfter(deadline)) {
-                throw new IllegalStateException("Run " + runId + " did not complete within " + timeout);
+            long nowStored = run.at("/summary/statementLines").asLong();
+            if (nowStored != stored) {
+                stored = nowStored;
+                lastProgress = Instant.now();
             }
-            sleep(Duration.ofMillis(200));
+            if (Instant.now().isAfter(deadline) || Instant.now().isAfter(lastProgress.plus(STALLED))) {
+                throw new IllegalStateException("Run " + runId + " did not complete: " + stored + " of "
+                        + run.at("/summary/statementLinesExpected").asString() + " lines stored, statementQueuedAt="
+                        + run.get("statementQueuedAt").asString() + ", matchingProblem="
+                        + run.get("matchingProblem").asString());
+            }
+            sleep(pollInterval);
         }
+    }
+
+    /** The statement's import report. */
+    public JsonNode statementImport(long runId) {
+        for (JsonNode report : expect(sendRetrying(request("/v1/runs/" + runId + "/imports").GET()), 200)) {
+            if ("STATEMENT".equals(report.get("side").asString())) {
+                return report;
+            }
+        }
+        throw new IllegalStateException("Run " + runId + " has no statement import");
     }
 
     public Predictions predictions(long runId) {
         List<Predictions.Match> matches = new ArrayList<>();
         long after = 0;
         while (true) {
-            JsonNode page = expect(send(request("/v1/runs/" + runId + "/matches?limit=1000&afterId=" + after).GET()), 200);
+            JsonNode page = expect(sendRetrying(
+                    request("/v1/runs/" + runId + "/matches?limit=1000&afterId=" + after).GET()), 200);
             for (JsonNode m : page) {
                 matches.add(new Predictions.Match(m.get("ledgerExternalId").asString(),
                         m.get("statementRowNumber").asInt(), m.get("rule").asString()));
@@ -85,7 +119,8 @@ public final class ServiceClient {
         List<Predictions.Break> breaks = new ArrayList<>();
         after = 0;
         while (true) {
-            JsonNode page = expect(send(request("/v1/breaks?limit=200&runId=" + runId + "&afterId=" + after).GET()), 200);
+            JsonNode page = expect(sendRetrying(
+                    request("/v1/breaks?limit=200&runId=" + runId + "&afterId=" + after).GET()), 200);
             for (JsonNode b : page) {
                 breaks.add(new Predictions.Break(b.get("type").asString(),
                         b.get("ledger").isNull() ? null : b.at("/ledger/externalId").asString(),
@@ -102,6 +137,31 @@ public final class ServiceClient {
     private HttpRequest.Builder request(String path) {
         return HttpRequest.newBuilder(URI.create(baseUrl + path)).timeout(Duration.ofSeconds(30))
                 .header("X-API-Key", apiKey);
+    }
+
+    /**
+     * For reads and uploads (the same file again is a replay): resent when the request may never have reached
+     * a live instance, as during a failover: a gateway error from nginx, or a dropped connection.
+     */
+    private HttpResponse<String> sendRetrying(HttpRequest.Builder request) {
+        Duration backoff = Duration.ofMillis(500);
+        for (int attempt = 1; ; attempt++) {
+            try {
+                HttpResponse<String> response = http.send(request.build(), HttpResponse.BodyHandlers.ofString());
+                if (!RETRYABLE.contains(response.statusCode()) || attempt == ATTEMPTS) {
+                    return response;
+                }
+            } catch (IOException e) {
+                if (attempt == ATTEMPTS) {
+                    throw new IllegalStateException("Request to " + baseUrl + " failed: " + e.getMessage(), e);
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(e);
+            }
+            sleep(backoff);
+            backoff = backoff.multipliedBy(2);
+        }
     }
 
     private HttpResponse<String> send(HttpRequest.Builder request) {
