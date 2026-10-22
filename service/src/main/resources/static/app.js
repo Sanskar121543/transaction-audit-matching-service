@@ -28,6 +28,7 @@
     key: readKey(),
     runs: [],
     selectedId: null,
+    followLatest: true, // until someone picks a run, show the newest one as it arrives
     breakdownFor: null, // the run summary the shown breakdown was loaded for
     breakdown: null,
     loading: false,
@@ -140,6 +141,7 @@
     destroyCharts();
     state.runs = [];
     state.selectedId = null;
+    state.followLatest = true;
     state.breakdown = null;
     state.breakdownFor = null;
     showLocked(true);
@@ -176,7 +178,7 @@
   function onEvent(event, data) {
     if (event !== 'runs') return;
     state.runs = JSON.parse(data).runs;
-    if (!state.runs.some((run) => run.id === state.selectedId)) {
+    if (state.followLatest || !state.runs.some((run) => run.id === state.selectedId)) {
       state.selectedId = state.runs.length ? state.runs[0].id : null;
     }
     renderRunList();
@@ -217,6 +219,7 @@
       button.setAttribute('aria-current', String(run.id === state.selectedId));
       button.addEventListener('click', () => {
         state.selectedId = run.id;
+        state.followLatest = run.id === state.runs[0].id;
         renderRunList();
         renderRun();
       });
