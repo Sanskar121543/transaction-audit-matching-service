@@ -27,6 +27,7 @@ public class RunSummaries {
 
     public Map<Long, RunSummary> forRuns(Collection<Long> runIds) {
         Map<Long, long[]> sizes = new HashMap<>();
+        Map<Long, Long> expectedLines = new HashMap<>();
         Map<Long, Map<String, Long>> byRule = new HashMap<>();
         Map<Long, Map<String, Long>> byType = new HashMap<>();
         for (long runId : runIds) {
@@ -38,8 +39,10 @@ public class RunSummaries {
         query("""
                 SELECT run_id, 'ledger', count(*) FROM ledger_records WHERE run_id = ANY(?) GROUP BY run_id
                 UNION ALL
-                SELECT run_id, 'statement', count(*) FROM statement_lines WHERE run_id = ANY(?) GROUP BY run_id
+                SELECT id, 'statement', statement_lines_received FROM runs WHERE id = ANY(?)
                 """, ids, 2, (runId, key, count) -> sizes.get(runId)["ledger".equals(key) ? 0 : 1] = count);
+        query("SELECT run_id, side, rows_accepted FROM imports WHERE run_id = ANY(?) AND side = 'STATEMENT'", ids, 1,
+                (runId, side, accepted) -> expectedLines.put(runId, accepted));
         query("SELECT run_id, rule, count(*) FROM matches WHERE run_id = ANY(?) GROUP BY run_id, rule", ids, 1,
                 (runId, rule, count) -> byRule.get(runId).put(rule, count));
         query("SELECT run_id, type, count(*) FROM breaks WHERE run_id = ANY(?) GROUP BY run_id, type", ids, 1,
@@ -51,8 +54,8 @@ public class RunSummaries {
             long lines = sizes.get(runId)[1];
             long matches = byRule.get(runId).values().stream().mapToLong(Long::longValue).sum();
             long breaks = byType.get(runId).values().stream().mapToLong(Long::longValue).sum();
-            result.put(runId, new RunSummary(ledger, lines, matches, byRule.get(runId), breaks, byType.get(runId),
-                    matchRate(matches, ledger + lines)));
+            result.put(runId, new RunSummary(ledger, lines, expectedLines.get(runId), matches, byRule.get(runId),
+                    breaks, byType.get(runId), matchRate(matches, ledger + lines)));
         }
         return result;
     }

@@ -34,6 +34,7 @@ class PaymentsLedgerExportIT {
 
         ApiResponse ledger = api.uploadLedger(runId, export);
         ApiResponse statement = api.uploadStatement(runId, bank.statementCsv());
+        api.awaitCompleted(runId);
 
         assertThat(ledger.body().get("rowsAccepted").asInt()).isEqualTo(60);
         assertThat(ledger.body().get("rowsRejected").asInt()).isZero();

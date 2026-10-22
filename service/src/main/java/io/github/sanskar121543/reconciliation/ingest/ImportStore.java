@@ -5,9 +5,12 @@ import java.sql.Date;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowCallbackHandler;
 import org.springframework.stereotype.Repository;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.json.JsonMapper;
@@ -36,6 +39,35 @@ public class ImportStore {
 
     public List<ImportReport> forRun(long runId) {
         return jdbc.query("SELECT * FROM imports WHERE run_id = ? ORDER BY id", this::toReport, runId);
+    }
+
+    /**
+     * What a worker checks each batch against: which file the run imported, how many lines it accepted, and
+     * whether the run is still MATCHING.
+     */
+    public record StatementFile(String sha256, int acceptedLines, boolean runMatching) {
+    }
+
+    public Optional<StatementFile> statementFile(long runId) {
+        return jdbc.query("""
+                SELECT i.sha256, i.rows_accepted, r.status = 'MATCHING'
+                FROM imports i JOIN runs r ON r.id = i.run_id
+                WHERE i.run_id = ? AND i.side = 'STATEMENT'
+                """, (rs, i) -> new StatementFile(rs.getString(1), rs.getInt(2), rs.getBoolean(3)), runId)
+                .stream().findFirst();
+    }
+
+    /** The first time Kafka acknowledged every line of the run's statement. */
+    public void markStatementQueued(long runId) {
+        jdbc.update("UPDATE runs SET statement_queued_at = now() WHERE id = ? AND statement_queued_at IS NULL", runId);
+    }
+
+    /** For each account, the highest row of the run's statement the workers have stored so far. */
+    public Map<String, Integer> lastStoredRowByAccount(long runId) {
+        Map<String, Integer> rows = new HashMap<>();
+        jdbc.query("SELECT account_id, max(row_number) FROM statement_lines WHERE run_id = ? GROUP BY account_id",
+                (RowCallbackHandler) rs -> rows.put(rs.getString(1), rs.getInt(2)), runId);
+        return rows;
     }
 
     public ImportReport insert(long runId, Side side, ParsedFile<?> file, String importedBy) {

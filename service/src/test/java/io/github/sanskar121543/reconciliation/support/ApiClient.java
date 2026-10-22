@@ -7,6 +7,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.Map;
+import org.awaitility.Awaitility;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -73,6 +74,19 @@ public class ApiClient {
 
     public JsonNode breaks(long runId) {
         return get("/v1/breaks?limit=200&runId=" + runId).body();
+    }
+
+    /**
+     * The statement upload returns once its lines are queued; the workers complete the run shortly after. A
+     * poll that fails at the gateway (an instance has just died) is simply polled again.
+     */
+    public JsonNode awaitCompleted(long runId) {
+        return Awaitility.await("run " + runId + " completed")
+                .atMost(Duration.ofSeconds(60))
+                .pollInterval(Duration.ofMillis(50))
+                .until(() -> get("/v1/runs/" + runId), run -> run.status() == 200
+                        && "COMPLETED".equals(run.textField("status")))
+                .body();
     }
 
     private HttpRequest.Builder request(String path) {

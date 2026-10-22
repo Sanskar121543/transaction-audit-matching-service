@@ -10,8 +10,12 @@ import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
+import java.util.OptionalInt;
+import java.util.Set;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowCallbackHandler;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
 import tools.jackson.databind.json.JsonMapper;
@@ -71,12 +75,77 @@ public class MatchStore {
         return sorted;
     }
 
+    /**
+     * Until the transaction ends, no other worker can store or match lines of these accounts in this run.
+     * The keys are taken in ascending order, so two workers whose accounts overlap cannot deadlock.
+     */
+    public void lockAccounts(long runId, Collection<String> accountIds) {
+        int[] keys = accountIds.stream().mapToInt(MatchStore::accountLockKey).distinct().sorted().toArray();
+        for (int key : keys) {
+            jdbc.query("SELECT pg_advisory_xact_lock(?, ?)", (RowCallbackHandler) rs -> {
+            }, (int) runId, key);
+        }
+    }
+
+    /**
+     * The second key of an account's lock (the first is the run id, truncated to an int). Two accounts with the
+     * same hash only make their workers wait for each other.
+     */
+    public static int accountLockKey(String accountId) {
+        return accountId.hashCode();
+    }
+
+    public Set<Integer> storedRows(long runId, Collection<Integer> rows) {
+        return new HashSet<>(jdbc.query(connection -> {
+            PreparedStatement ps = connection.prepareStatement(
+                    "SELECT row_number FROM statement_lines WHERE run_id = ? AND row_number = ANY(?)");
+            ps.setLong(1, runId);
+            ps.setArray(2, array(connection, "int4", rows.toArray()));
+            return ps;
+        }, (rs, i) -> rs.getInt(1)));
+    }
+
+    /**
+     * The end-of-run step computes for seconds between two statements on a large run, which the pool's 15 s
+     * idle-in-transaction limit (meant for sessions whose instance died) must not cut short. SET LOCAL ends
+     * with the transaction.
+     */
+    public void allowLongComputationInThisTransaction() {
+        jdbc.execute("SET LOCAL idle_in_transaction_session_timeout = '5min'");
+    }
+
+    /**
+     * Adds to the run's count of stored lines and returns the new total, or nothing if the run is no longer
+     * MATCHING. Holds the run's row lock until commit. Waiting for that lock re-reads the row, so a line
+     * stored while another transaction completes the run is seen here as arriving after completion.
+     */
+    public OptionalInt addReceivedLines(long runId, int lines) {
+        List<Integer> total = jdbc.queryForList("""
+                UPDATE runs SET statement_lines_received = statement_lines_received + ?
+                WHERE id = ? AND status = 'MATCHING'
+                RETURNING statement_lines_received
+                """, Integer.class, lines, runId);
+        return total.isEmpty() ? OptionalInt.empty() : OptionalInt.of(total.getFirst());
+    }
+
+    /** Runs outside any transaction: the worker's own transaction has already rolled back. */
+    public void recordMatchingProblem(long runId, String problem) {
+        jdbc.update("UPDATE runs SET matching_problem = ?, matching_problem_at = now() WHERE id = ?", problem, runId);
+    }
+
+    public void clearMatchingProblem(long runId) {
+        jdbc.update("""
+                UPDATE runs SET matching_problem = NULL, matching_problem_at = NULL
+                WHERE id = ? AND matching_problem IS NOT NULL
+                """, runId);
+    }
+
     public List<LedgerItem> unmatchedLedgerWithReferences(long runId, String accountId, Collection<String> references) {
         return jdbc.query(connection -> {
             PreparedStatement ps = connection.prepareStatement("SELECT " + LEDGER_COLUMNS + """
                      FROM ledger_records l
                     WHERE l.run_id = ? AND l.account_id = ? AND l.reference = ANY(?)
-                      AND NOT EXISTS (SELECT 1 FROM matches m WHERE m.ledger_record_id = l.id)
+                      AND NOT EXISTS (SELECT 1 FROM matches m WHERE m.run_id = l.run_id AND m.ledger_record_id = l.id)
                     """);
             ps.setLong(1, runId);
             ps.setString(2, accountId);
@@ -107,7 +176,8 @@ public class MatchStore {
     public List<LedgerItem> unmatchedLedger(long runId) {
         return jdbc.query("SELECT " + LEDGER_COLUMNS + """
                  FROM ledger_records l
-                WHERE l.run_id = ? AND NOT EXISTS (SELECT 1 FROM matches m WHERE m.ledger_record_id = l.id)
+                WHERE l.run_id = ?
+                  AND NOT EXISTS (SELECT 1 FROM matches m WHERE m.run_id = l.run_id AND m.ledger_record_id = l.id)
                 ORDER BY l.id
                 """, LEDGER, runId);
     }
@@ -115,14 +185,21 @@ public class MatchStore {
     public List<StatementItem> unmatchedLines(long runId) {
         return jdbc.query("SELECT " + LINE_COLUMNS + """
                  FROM statement_lines s
-                WHERE s.run_id = ? AND NOT EXISTS (SELECT 1 FROM matches m WHERE m.statement_line_id = s.id)
+                WHERE s.run_id = ?
+                  AND NOT EXISTS (SELECT 1 FROM matches m WHERE m.run_id = s.run_id AND m.statement_line_id = s.id)
                 ORDER BY s.row_number
                 """, LINE, runId);
     }
 
-    /** Matches in which either side has one of these references (raw or normalised). */
-    public List<MatchDecision> matchesSharingReferences(long runId, Collection<String> references) {
-        if (references.isEmpty()) {
+    /**
+     * Matches in which either side has one of these normalised references, or one of these raw references
+     * that normalise to nothing. Because normalising is idempotent and each normalised column is the
+     * normalised raw one, this finds exactly the matches whose raw or normalised reference on either side
+     * equals any raw or normalised reference of the given records, with far fewer values to compare.
+     */
+    public List<MatchDecision> matchesSharingReferences(long runId, Collection<String> normalizedReferences,
+            Collection<String> rawReferencesWithoutLettersOrDigits) {
+        if (normalizedReferences.isEmpty() && rawReferencesWithoutLettersOrDigits.isEmpty()) {
             return List.of();
         }
         return jdbc.query(connection -> {
@@ -132,15 +209,17 @@ public class MatchStore {
                      JOIN ledger_records l ON l.id = m.ledger_record_id
                      JOIN statement_lines s ON s.id = m.statement_line_id
                     WHERE m.run_id = ?
-                      AND (l.reference = ANY(?) OR l.normalized_reference = ANY(?)
-                           OR s.reference = ANY(?) OR s.normalized_reference = ANY(?))
+                      AND (l.normalized_reference = ANY(?) OR s.normalized_reference = ANY(?)
+                           OR l.reference = ANY(?) OR s.reference = ANY(?))
                     ORDER BY m.id
                     """);
-            Array refs = array(connection, "text", references.toArray());
+            Array normalized = array(connection, "text", normalizedReferences.toArray());
+            Array raw = array(connection, "text", rawReferencesWithoutLettersOrDigits.toArray());
             ps.setLong(1, runId);
-            for (int i = 2; i <= 5; i++) {
-                ps.setArray(i, refs);
-            }
+            ps.setArray(2, normalized);
+            ps.setArray(3, normalized);
+            ps.setArray(4, raw);
+            ps.setArray(5, raw);
             return ps;
         }, (rs, i) -> new MatchDecision(LEDGER.mapRow(rs, i), lineAt(rs, 7), Rule.valueOf(rs.getString(14))));
     }

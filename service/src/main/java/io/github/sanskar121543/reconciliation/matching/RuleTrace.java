@@ -5,7 +5,9 @@ import io.github.sanskar121543.reconciliation.matching.RuleCheck.Result;
 import java.time.LocalDate;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
@@ -19,6 +21,9 @@ final class RuleTrace {
     private final List<LedgerItem> unmatchedLedger;
     private final List<StatementItem> unmatchedLines;
     private final List<MatchDecision> matched;
+    // Built on first use and shared by every break: the account looks the same to all of them.
+    private Candidates ledgerSide;
+    private Candidates lineSide;
 
     RuleTrace(Tolerance tolerance, List<LedgerItem> unmatchedLedger, List<StatementItem> unmatchedLines,
             List<MatchDecision> matched) {
@@ -41,36 +46,51 @@ final class RuleTrace {
         }
     }
 
+    /** One side of the account, indexed by reference for the exact and normalised-reference checks. */
+    private record Candidates(List<Candidate> all, Map<String, List<Candidate>> byReference,
+            Map<String, List<Candidate>> byNormalized) {
+
+        static Candidates of(List<Candidate> all) {
+            return new Candidates(all, all.stream().collect(Collectors.groupingBy(Candidate::reference)),
+                    all.stream().collect(Collectors.groupingBy(Candidate::normalized)));
+        }
+    }
+
     List<RuleCheck> forLine(StatementItem line) {
-        List<Candidate> ledger = Stream.concat(
-                unmatchedLedger.stream().map(l -> candidate(l, null)),
-                matched.stream().map(m -> candidate(m.ledger(), "statement row " + m.line().rowNumber())))
-                .toList();
+        if (ledgerSide == null) {
+            ledgerSide = Candidates.of(Stream.concat(
+                    unmatchedLedger.stream().map(l -> candidate(l, null)),
+                    matched.stream().map(m -> candidate(m.ledger(), "statement row " + m.line().rowNumber())))
+                    .toList());
+        }
         return explain("bank line", "ledger record", line.amountCents(), line.date(), line.reference(),
-                line.normalizedReference(), ledger);
+                line.normalizedReference(), ledgerSide);
     }
 
     List<RuleCheck> forLedger(LedgerItem record) {
-        List<Candidate> lines = Stream.concat(
-                unmatchedLines.stream().map(s -> candidate(s, null)),
-                matched.stream().map(m -> candidate(m.line(), "ledger record #" + m.ledger().id())))
-                .toList();
+        if (lineSide == null) {
+            lineSide = Candidates.of(Stream.concat(
+                    unmatchedLines.stream().map(s -> candidate(s, null)),
+                    matched.stream().map(m -> candidate(m.line(), "ledger record #" + m.ledger().id())))
+                    .toList());
+        }
         return explain("ledger record", "bank line", record.amountCents(), record.date(), record.reference(),
-                record.normalizedReference(), lines);
+                record.normalizedReference(), lineSide);
     }
 
     private List<RuleCheck> explain(String noun, String otherNoun, long amount, LocalDate date, String reference,
-            String normalized, List<Candidate> others) {
-        return List.of(exact(noun, otherNoun, amount, reference, others),
-                tolerance(otherNoun, amount, date, others),
-                normalized(noun, otherNoun, amount, date, normalized, others));
+            String normalized, Candidates others) {
+        return List.of(exact(noun, otherNoun, amount, reference, others.byReference()),
+                tolerance(otherNoun, amount, date, others.all()),
+                normalized(noun, otherNoun, amount, date, normalized, others.byNormalized()));
     }
 
-    private RuleCheck exact(String noun, String otherNoun, long amount, String reference, List<Candidate> others) {
+    private RuleCheck exact(String noun, String otherNoun, long amount, String reference,
+            Map<String, List<Candidate>> byReference) {
         if (reference.isEmpty()) {
             return check(Rule.EXACT, Result.NO_REFERENCE, null, null, null, "The " + noun + " has no reference.");
         }
-        List<Candidate> sameReference = others.stream().filter(c -> c.reference().equals(reference)).toList();
+        List<Candidate> sameReference = byReference.getOrDefault(reference, List.of());
         Optional<Candidate> taken = sameReference.stream()
                 .filter(c -> c.amountCents() == amount && !c.free())
                 .min(Comparator.comparingLong(Candidate::order));
@@ -118,12 +138,12 @@ final class RuleTrace {
     }
 
     private RuleCheck normalized(String noun, String otherNoun, long amount, LocalDate date, String normalized,
-            List<Candidate> others) {
+            Map<String, List<Candidate>> byNormalized) {
         if (normalized.isEmpty()) {
             return check(Rule.NORMALIZED_REFERENCE, Result.NO_REFERENCE, null, null, null,
                     "The " + noun + "'s reference has no letters or digits.");
         }
-        List<Candidate> sameReference = others.stream().filter(c -> c.normalized().equals(normalized)).toList();
+        List<Candidate> sameReference = byNormalized.getOrDefault(normalized, List.of());
         Optional<Candidate> closestFree = sameReference.stream().filter(Candidate::free).min(byAmountFrom(amount));
         if (closestFree.isEmpty()) {
             Optional<Candidate> taken = sameReference.stream().min(byAmountFrom(amount));

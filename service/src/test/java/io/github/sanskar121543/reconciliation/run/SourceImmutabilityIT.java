@@ -31,6 +31,7 @@ class SourceImmutabilityIT {
         runId = api.createRun("immutability");
         api.uploadLedger(runId, ReconciliationIT.LEDGER);
         api.uploadStatement(runId, ReconciliationIT.STATEMENT);
+        api.awaitCompleted(runId);
     }
 
     @ParameterizedTest

@@ -38,12 +38,19 @@ public class RunCompletion {
         long runId = run.getId();
         List<LedgerItem> ledger = store.unmatchedLedger(runId);
         List<StatementItem> lines = store.unmatchedLines(runId);
-        Set<String> references = Stream.concat(
-                        ledger.stream().flatMap(l -> Stream.of(l.reference(), l.normalizedReference())),
-                        lines.stream().flatMap(s -> Stream.of(s.reference(), s.normalizedReference())))
-                .filter(r -> !r.isEmpty())
-                .collect(Collectors.toCollection(TreeSet::new));
-        List<MatchDecision> related = store.matchesSharingReferences(runId, references);
+        // Every existing match that shares a reference, raw or normalised, with anything still unmatched.
+        Set<String> normalized = new TreeSet<>();
+        Set<String> rawWithoutLettersOrDigits = new TreeSet<>();
+        Stream.concat(ledger.stream().map(l -> new String[] {l.reference(), l.normalizedReference()}),
+                        lines.stream().map(s -> new String[] {s.reference(), s.normalizedReference()}))
+                .forEach(reference -> {
+                    if (!reference[1].isEmpty()) {
+                        normalized.add(reference[1]);
+                    } else if (!reference[0].isEmpty()) {
+                        rawWithoutLettersOrDigits.add(reference[0]);
+                    }
+                });
+        List<MatchDecision> related = store.matchesSharingReferences(runId, normalized, rawWithoutLettersOrDigits);
 
         Map<String, List<LedgerItem>> ledgerByAccount = group(ledger, LedgerItem::accountId);
         Map<String, List<StatementItem>> linesByAccount = group(lines, StatementItem::accountId);
@@ -63,6 +70,7 @@ public class RunCompletion {
         }
         store.insertMatches(runId, matches, instance.id());
         store.insertBreaks(runId, breaks);
+        store.clearMatchingProblem(runId);
         run.complete(clock.instant());
         return new Summary(matches.size(), breaks.size());
     }

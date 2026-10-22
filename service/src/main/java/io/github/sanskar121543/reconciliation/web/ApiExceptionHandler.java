@@ -2,6 +2,7 @@ package io.github.sanskar121543.reconciliation.web;
 
 import io.github.sanskar121543.reconciliation.ingest.MalformedFileException;
 import io.github.sanskar121543.reconciliation.ingest.PayloadTooLargeException;
+import io.github.sanskar121543.reconciliation.ingest.StatementNotQueuedException;
 import java.net.URI;
 import java.util.List;
 import java.util.stream.Stream;
@@ -72,6 +73,16 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
                 .header(HttpHeaders.RETRY_AFTER, "1")
                 .body(Problems.of(HttpStatus.SERVICE_UNAVAILABLE, "database-unavailable", "Database unavailable",
                         "The database could not be reached in time; retry the request."));
+    }
+
+    @ExceptionHandler(StatementNotQueuedException.class)
+    ResponseEntity<ProblemDetail> statementNotQueued(StatementNotQueuedException e) {
+        log.warn(e.getMessage());
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .header(HttpHeaders.RETRY_AFTER, "5")
+                .body(Problems.of(HttpStatus.SERVICE_UNAVAILABLE, "statement-not-queued", "Statement not queued",
+                        "The statement is recorded but its lines could not all be queued for matching; upload the "
+                                + "same file again to resume. Nothing is matched twice."));
     }
 
     @ExceptionHandler(Exception.class)

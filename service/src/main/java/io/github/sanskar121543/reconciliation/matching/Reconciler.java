@@ -6,8 +6,10 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * The end-of-run step for one account, once every statement line is in. The exact rule (a) already ran
@@ -42,12 +44,14 @@ public final class Reconciler {
         lines.sort(Comparator.comparingInt(StatementItem::rowNumber));
         List<MatchDecision> matched = new ArrayList<>(book.relatedMatches());
         List<MatchDecision> newMatches = new ArrayList<>();
-        matchPass(Rule.TOLERANCE, lines, ledger, newMatches,
-                line -> ToleranceRule.pickWithAgreeingReference(line, ledger, tolerance));
-        matchPass(Rule.TOLERANCE, lines, ledger, newMatches,
-                line -> ToleranceRule.pick(line, ledger, tolerance));
-        matchPass(Rule.NORMALIZED_REFERENCE, lines, ledger, newMatches,
-                line -> NormalizedReferenceRule.pick(line, ledger, tolerance));
+        UnmatchedLedger index = new UnmatchedLedger(ledger);
+        long amountTolerance = tolerance.amountCents();
+        matchPass(Rule.TOLERANCE, lines, ledger, index, newMatches, line -> ToleranceRule.pickWithAgreeingReference(
+                line, index.withinAmount(line.amountCents(), amountTolerance), tolerance));
+        matchPass(Rule.TOLERANCE, lines, ledger, index, newMatches, line -> ToleranceRule.pick(
+                line, index.withinAmount(line.amountCents(), amountTolerance), tolerance));
+        matchPass(Rule.NORMALIZED_REFERENCE, lines, ledger, index, newMatches, line -> NormalizedReferenceRule.pick(
+                line, index.withNormalizedReference(line.normalizedReference()), tolerance));
         matched.addAll(newMatches);
 
         RuleTrace trace = new RuleTrace(tolerance, List.copyOf(ledger), List.copyOf(lines), List.copyOf(matched));
@@ -67,7 +71,7 @@ public final class Reconciler {
         return new Outcome(newMatches, breaks);
     }
 
-    private static void matchPass(Rule rule, List<StatementItem> lines, List<LedgerItem> ledger,
+    private static void matchPass(Rule rule, List<StatementItem> lines, List<LedgerItem> ledger, UnmatchedLedger index,
             List<MatchDecision> matches, Function<StatementItem, Optional<LedgerItem>> pick) {
         for (Iterator<StatementItem> it = lines.iterator(); it.hasNext();) {
             StatementItem line = it.next();
@@ -75,6 +79,7 @@ public final class Reconciler {
             if (match.isPresent()) {
                 matches.add(new MatchDecision(match.get(), line, rule));
                 ledger.remove(match.get());
+                index.remove(match.get());
                 it.remove();
             }
         }
@@ -82,9 +87,14 @@ public final class Reconciler {
 
     private void classifyDuplicates(List<StatementItem> lines, List<LedgerItem> ledger, List<MatchDecision> matched,
             RuleTrace trace, List<BreakDecision> breaks) {
+        // A copy needs the same non-empty normalised reference, so only matches sharing it need checking.
+        Map<String, List<MatchDecision>> byLineReference = matched.stream()
+                .collect(Collectors.groupingBy(m -> m.line().normalizedReference()));
+        Map<String, List<MatchDecision>> byLedgerReference = matched.stream()
+                .collect(Collectors.groupingBy(m -> m.ledger().normalizedReference()));
         for (Iterator<StatementItem> it = lines.iterator(); it.hasNext();) {
             StatementItem line = it.next();
-            matched.stream()
+            byLineReference.getOrDefault(line.normalizedReference(), List.of()).stream()
                     .filter(m -> isCopy(line.normalizedReference(), line.amountCents(), m.line().normalizedReference(),
                             m.line().amountCents(), Dates.daysApart(line.date(), m.line().date())))
                     .min(Comparator.comparingInt(m -> m.line().rowNumber()))
@@ -99,7 +109,7 @@ public final class Reconciler {
         }
         for (Iterator<LedgerItem> it = ledger.iterator(); it.hasNext();) {
             LedgerItem record = it.next();
-            matched.stream()
+            byLedgerReference.getOrDefault(record.normalizedReference(), List.of()).stream()
                     .filter(m -> isCopy(record.normalizedReference(), record.amountCents(),
                             m.ledger().normalizedReference(), m.ledger().amountCents(),
                             Dates.daysApart(record.date(), m.ledger().date())))
@@ -117,13 +127,13 @@ public final class Reconciler {
 
     private void classifyAmountMismatches(List<StatementItem> lines, List<LedgerItem> ledger, RuleTrace trace,
             List<BreakDecision> breaks) {
+        UnmatchedLedger index = new UnmatchedLedger(ledger);
         for (Iterator<StatementItem> it = lines.iterator(); it.hasNext();) {
             StatementItem line = it.next();
             if (line.normalizedReference().isEmpty()) {
                 continue;
             }
-            Optional<LedgerItem> counterpart = ledger.stream()
-                    .filter(l -> l.normalizedReference().equals(line.normalizedReference()))
+            Optional<LedgerItem> counterpart = index.withNormalizedReference(line.normalizedReference()).stream()
                     .min(Comparator.comparingLong((LedgerItem l) -> Math.abs(l.amountCents() - line.amountCents()))
                             .thenComparingLong(l -> Dates.daysApart(l.date(), line.date()))
                             .thenComparingLong(LedgerItem::id));
@@ -139,6 +149,7 @@ public final class Reconciler {
                             + ", more than the " + Money.format(tolerance.amountCents()) + " tolerance.",
                     trace.forLine(line)));
             ledger.remove(record);
+            index.remove(record);
             it.remove();
         }
     }

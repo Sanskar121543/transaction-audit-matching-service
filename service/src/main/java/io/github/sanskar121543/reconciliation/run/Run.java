@@ -40,6 +40,17 @@ public class Run {
     @Column(name = "completed_at")
     private Instant completedAt;
 
+    // Written with plain SQL, by the upload and the workers, while other transactions may hold this entity:
+    // read-only here, so flushing a stale copy can never overwrite them.
+    @Column(name = "statement_queued_at", insertable = false, updatable = false)
+    private Instant statementQueuedAt;
+
+    @Column(name = "matching_problem", insertable = false, updatable = false)
+    private String matchingProblem;
+
+    @Column(name = "matching_problem_at", insertable = false, updatable = false)
+    private Instant matchingProblemAt;
+
     protected Run() {
     }
 
@@ -51,6 +62,14 @@ public class Run {
         this.createdBy = createdBy;
         // Postgres stores microseconds; truncating keeps the 201 body equal to a later GET.
         this.createdAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
+    }
+
+    /** The statement is recorded and its lines are queued for the workers. */
+    public void startMatching() {
+        if (status != RunStatus.RECEIVING) {
+            throw new IllegalStateException("Run " + id + " is " + status + ", not RECEIVING");
+        }
+        status = RunStatus.MATCHING;
     }
 
     public void complete(Instant at) {
@@ -87,5 +106,17 @@ public class Run {
 
     public Instant getCompletedAt() {
         return completedAt;
+    }
+
+    public Instant getStatementQueuedAt() {
+        return statementQueuedAt;
+    }
+
+    public String getMatchingProblem() {
+        return matchingProblem;
+    }
+
+    public Instant getMatchingProblemAt() {
+        return matchingProblemAt;
     }
 }

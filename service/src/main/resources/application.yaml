@@ -13,6 +13,10 @@ spring:
       connection-timeout: 5000
       data-source-properties:
         ApplicationName: ${matching.instance-id}
+      # An instance killed in the middle of a transaction leaves its session open until TCP notices, holding
+      # its locks. This ends such a session (rolling it back) after 15 s of silence instead. Only the end-of-run
+      # step computes that long between two statements, and it lifts the limit for its own transaction.
+      connection-init-sql: SET idle_in_transaction_session_timeout = '15s'
   jpa:
     open-in-view: false
     hibernate:
@@ -21,9 +25,44 @@ spring:
     deserialization:
       accept-float-as-int: false
       fail-on-unknown-properties: true
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:${KAFKA_PORT:9095}}
+    admin:
+      # Without its topics no statement can be queued: refuse to start rather than answer every upload with 503.
+      fail-fast: true
+    producer:
+      # Both are the client's defaults, spelled out because per-account line order depends on them: an
+      # idempotent producer never reorders or duplicates records on a partition when it retries a send.
+      acks: all
+      compression-type: lz4
+      batch-size: 64KB
+      properties:
+        enable.idempotence: true
+        linger.ms: 5
+        # With Kafka unreachable, an upload fails after seconds with a 503 instead of hanging for a minute.
+        max.block.ms: 5000
+        request.timeout.ms: 10000
+        delivery.timeout.ms: 30000
+    consumer:
+      group-id: statement-matcher
+      # Spring Kafka appends -0, -1, -2 per consumer thread, so Kafka tools show which instance owns a partition.
+      client-id: ${matching.instance-id}
+      auto-offset-reset: earliest
+      max-poll-records: 500
+      properties:
+        # A crashed instance's partitions move to a live one after 10 s instead of the default 45 s.
+        session.timeout.ms: 10000
+    listener:
+      # 3 consumers per instance: 6 partitions give 2 each with one instance and 1 each with two.
+      concurrency: 3
 
 server:
   shutdown: graceful
+  tomcat:
+    # Above nginx's 33 MB body limit. When a request is refused before its body is read (no key, unknown run),
+    # Tomcat then reads the rest of the body instead of closing the connection, so nginx gets the real 401 or
+    # 404 rather than a reset it would count as the instance failing.
+    max-swallow-size: 34MB
 
 management:
   endpoints:
@@ -54,3 +93,7 @@ matching:
   rules:
     amount-tolerance-cents: 100
     date-window-days: 3
+  kafka:
+    topic: statement.lines
+    partitions: 6
+    publish-timeout: 60s

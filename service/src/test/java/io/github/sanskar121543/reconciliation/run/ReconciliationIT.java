@@ -2,24 +2,33 @@ package io.github.sanskar121543.reconciliation.run;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.github.sanskar121543.reconciliation.ingest.StatementLineInput;
+import io.github.sanskar121543.reconciliation.ingest.StatementPublisher;
+import io.github.sanskar121543.reconciliation.matching.StatementLineWorker;
 import io.github.sanskar121543.reconciliation.support.ApiClient;
 import io.github.sanskar121543.reconciliation.support.ApiResponse;
 import io.github.sanskar121543.reconciliation.support.IntegrationTest;
+import io.github.sanskar121543.reconciliation.support.RunInvariants;
+import java.time.Duration;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import org.awaitility.Awaitility;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.kafka.config.KafkaListenerEndpointRegistry;
+import org.springframework.kafka.listener.MessageListenerContainer;
 import tools.jackson.databind.JsonNode;
 
 /** One small run that produces every break type, checked through the public API. */
 @IntegrationTest
-class ReconciliationIT {
+public class ReconciliationIT {
 
-    static final String LEDGER = """
+    public static final String LEDGER = """
             external_id,account_id,booking_date,amount,currency,reference,description
             L-1,ACC-1,2026-10-01,100.00,USD,INV-1,matched exactly
             L-2,ACC-1,2026-10-02,250.00,USD,INV-2,never reaches the bank
@@ -29,7 +38,7 @@ class ReconciliationIT {
             L-6,ACC-2,2026-10-06,-60.00,USD,PAY-6,booked twice
             L-7,ACC-2,2026-10-06,-60.00,USD,PAY-6,booked twice (copy)
             """;
-    static final String STATEMENT = """
+    public static final String STATEMENT = """
             account_id,value_date,amount,reference,description
             ACC-1,2026-10-01,100.00,INV-1,
             ACC-1,2026-10-04,480.00,inv 3,
@@ -46,6 +55,12 @@ class ReconciliationIT {
     @Autowired
     JdbcTemplate jdbc;
 
+    @Autowired
+    KafkaListenerEndpointRegistry listeners;
+
+    @Autowired
+    StatementLineWorker worker;
+
     ApiClient api;
 
     @BeforeEach
@@ -60,6 +75,7 @@ class ReconciliationIT {
         ApiResponse statement = api.uploadStatement(runId, STATEMENT);
         assertThat(statement.status()).isEqualTo(201);
         assertThat(statement.body().get("rowsAccepted").asInt()).isEqualTo(7);
+        api.awaitCompleted(runId);
 
         List<Map<String, Object>> matches = jdbc.queryForList("""
                 SELECT l.external_id, s.row_number, m.rule FROM matches m
@@ -97,6 +113,7 @@ class ReconciliationIT {
                 ACC-1,2026-10-10,100.50,WIRE 55
                 ACC-1,2026-10-10,100.00,INV-1
                 """);
+        api.awaitCompleted(runId);
 
         JsonNode matches = api.get("/v1/runs/" + runId + "/matches").body();
         assertThat(matches).hasSize(1);
@@ -118,6 +135,7 @@ class ReconciliationIT {
                 ACC-1,2026-10-02,249.25,WIRE 1188
                 ACC-1,2026-10-20,980.00,po 0012
                 """);
+        api.awaitCompleted(runId);
 
         JsonNode matches = api.get("/v1/runs/" + runId + "/matches").body();
         assertThat(matches).extracting(m -> m.get("ledgerExternalId").asString() + ":" + m.get("rule").asString())
@@ -227,10 +245,60 @@ class ReconciliationIT {
         assertThat(custom.longField("dateWindowDays")).isEqualTo(5);
     }
 
+    @Test
+    void aRunIsMatchingUntilItsLinesAreStoredAndUploadingTheStatementMeanwhileQueuesThemAgain() {
+        long runId = api.createRun("paused workers");
+        api.uploadLedger(runId, LEDGER);
+        MessageListenerContainer workers = listeners.getListenerContainer("statement-lines");
+        workers.pause();
+        try {
+            Awaitility.await().atMost(Duration.ofSeconds(30)).until(workers::isContainerPaused);
+            ApiResponse first = api.uploadStatement(runId, STATEMENT);
+            JsonNode matching = api.get("/v1/runs/" + runId).body();
+            ApiResponse again = api.uploadStatement(runId, STATEMENT);
+
+            assertThat(first.status()).isEqualTo(201);
+            assertThat(matching.get("status").asString()).isEqualTo("MATCHING");
+            assertThat(matching.get("statementQueuedAt").isNull()).as("every line acknowledged by Kafka").isFalse();
+            assertThat(matching.at("/summary/statementLines").asLong()).isZero();
+            assertThat(matching.at("/summary/statementLinesExpected").asLong()).isEqualTo(7);
+            assertThat(again.status()).isEqualTo(200);
+            assertThat(again.body().get("replayed").asBoolean()).isTrue();
+        } finally {
+            workers.resume();
+        }
+        api.awaitCompleted(runId);
+
+        assertThat(api.get("/v1/runs/" + runId).body().at("/summary/breaks").asLong()).isEqualTo(5);
+        assertThat(describe(api.breaks(runId))).containsExactlyInAnyOrder("MISSING_IN_BANK L-2 -",
+                "AMOUNT_MISMATCH L-3 2", "DUPLICATE - 4", "MISSING_IN_LEDGER - 5", "DUPLICATE L-7 -");
+        RunInvariants.assertLinesStoredOnceInFileOrder(jdbc, runId, 7);
+    }
+
+    @Test
+    void aBatchDeliveredAgainAfterTheRunCompletedChangesNothing() {
+        long runId = completedRun();
+        long matches = count("matches", runId);
+        long breaks = count("breaks", runId);
+        String sha256 = jdbc.queryForObject("SELECT sha256 FROM imports WHERE run_id = ? AND side = 'STATEMENT'",
+                String.class, runId);
+        List<StatementLineInput> lines = List.of(
+                new StatementLineInput(1, "ACC-1", LocalDate.of(2026, 10, 1), 100_00, "INV-1", "", null),
+                new StatementLineInput(2, "ACC-1", LocalDate.of(2026, 10, 4), 480_00, "inv 3", "", null));
+
+        worker.handle(runId, StatementPublisher.messages(runId, sha256, lines));
+
+        assertThat(count("matches", runId)).isEqualTo(matches);
+        assertThat(count("breaks", runId)).isEqualTo(breaks);
+        assertThat(api.get("/v1/runs/" + runId).body().get("status").asString()).isEqualTo("COMPLETED");
+        RunInvariants.assertLinesStoredOnceInFileOrder(jdbc, runId, 7);
+    }
+
     private long completedRun() {
         long runId = api.createRun("october");
         api.uploadLedger(runId, LEDGER);
         api.uploadStatement(runId, STATEMENT);
+        api.awaitCompleted(runId);
         return runId;
     }
 
