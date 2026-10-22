@@ -20,11 +20,11 @@ import org.awaitility.Awaitility;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.Network;
 import org.testcontainers.containers.wait.strategy.Wait;
-import org.testcontainers.images.builder.ImageFromDockerfile;
 import org.testcontainers.kafka.KafkaContainer;
 import org.testcontainers.lifecycle.Startables;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
+import org.testcontainers.utility.MountableFile;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -78,11 +78,13 @@ final class ServiceUnderTest {
     private long runId;
     private long resolvedBreakId;
 
+    /** Kept only once it started and was seeded, so a failed start is retried rather than handed out half-made. */
     static synchronized ServiceUnderTest get() {
         if (instance == null) {
-            instance = new ServiceUnderTest();
-            instance.start();
-            instance.seed();
+            ServiceUnderTest started = new ServiceUnderTest();
+            started.start();
+            started.seed();
+            instance = started;
         }
         return instance;
     }
@@ -122,16 +124,14 @@ final class ServiceUnderTest {
                 .header("Content-Type", contentType).POST(HttpRequest.BodyPublishers.ofString(body)).build()).statusCode();
     }
 
+    // The jar is copied into a stock JRE container rather than built into an image: the service module's tests
+    // build (and on exit delete) an image from the same jar, and a build here could reuse its cached layers
+    // just as they are removed.
     private void start() {
-        ImageFromDockerfile image = new ImageFromDockerfile("transaction-audit-matching-mcp-it", true)
-                .withFileFromPath("app.jar", serviceJar())
-                .withDockerfileFromBuilder(builder -> builder
-                        .from("eclipse-temurin:21-jre-noble")
-                        .copy("app.jar", "/app/app.jar")
-                        .entryPoint("sh", "-c", "exec java $JAVA_OPTS -jar /app/app.jar")
-                        .build());
         Startables.deepStart(postgres, kafka).join();
-        app = new GenericContainer<>(image)
+        app = new GenericContainer<>(DockerImageName.parse("eclipse-temurin:21-jre-noble"))
+                .withCopyFileToContainer(MountableFile.forHostPath(serviceJar()), "/app/app.jar")
+                .withCommand("sh", "-c", "exec java $JAVA_OPTS -jar /app/app.jar")
                 .withNetwork(network)
                 .withEnv("INSTANCE_ID", "app1")
                 .withEnv("DB_URL", "jdbc:postgresql://postgres:5432/" + postgres.getDatabaseName())
