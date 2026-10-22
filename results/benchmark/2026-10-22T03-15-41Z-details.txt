@@ -1,0 +1,43 @@
+Run 3, commit ee94f21
+
+## Peak memory per container during the run (docker stats, sampled every second; [limit])
+flagd-ui                                         182.6 MiB  [200MiB]
+tam-bench-app1-1                                 668.9 MiB  [768MiB]
+tam-bench-app2-1                                 655.2 MiB  [768MiB]
+tam-bench-kafbat-ui-1                            359.5 MiB  [512MiB]
+tam-bench-kafka-1                                478.2 MiB  [768MiB]
+tam-bench-nginx-1                                  6.8 MiB  [64MiB]
+tam-bench-postgres-1                             220.6 MiB  [768MiB]
+
+## Lines published per partition during the run (end offsets after minus before)
+partition 0: 16651 records
+partition 1: 16606 records
+partition 2: 8426 records
+partition 3: 16691 records
+partition 4: 33359 records
+partition 5: 8320 records
+
+## Which consumer owned each partition (at the end of the run)
+PARTITION CURRENT-OFFSET LAG CLIENT-ID
+3 18355 0 app2-0
+1 18297 0 app1-1
+2 9244 0 app1-2
+4 36634 0 app2-1
+5 9174 0 app2-2
+0 18245 0 app1-0
+
+## Lines stored per instance
+ instance | lines_stored 
+----------+--------------
+ app1     |        41683
+ app2     |        58370
+(2 rows)
+
+## Server timestamps: statement recorded, last batch of lines begun, run completed
+      statement_recorded       |       last_batch_begun        |         completed_at          | last_batch_and_end_of_run_step 
+-------------------------------+-------------------------------+-------------------------------+--------------------------------
+ 2026-10-22 03:14:56.519731+00 | 2026-10-22 03:15:36.815901+00 | 2026-10-22 03:15:38.783164+00 | 00:00:01.967263
+(1 row)
+
+## The end-of-run step, as the worker that completed the run logged it
+Run 3 completed: all 100053 lines in; the end-of-run step made 12095 matches and 9369 breaks in 1930 ms

@@ -1,6 +1,6 @@
 # Transaction Audit & Matching Service: Plan
 
-> **Status: executed autonomously from 2026-10-19.** You asked me to build the whole project, so the phases run back to back. Each ends with a git tag (`phase-1` … `phase-7`).
+> **Status: executed autonomously from 2026-10-19.** You asked me to build the whole project, so the phases run back to back. Each ends with a git tag (`phase-1` … `phase-7`). Done so far: phases 1–3.
 >
 > You approved D1–D3 before any code depended on them. Every other "default I picked" is a decision you hadn't made yet. DESIGN.md records each one as choice / alternatives / why, so any of them is easy to change.
 
