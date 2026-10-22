@@ -19,14 +19,18 @@ set -a; source .env; set +a
 
 export BASE_URL="${BASE_URL:-http://localhost:${HTTP_PORT:-8089}}"
 # -dirty if anything outside results/ differs from HEAD: the numbers then belong to uncommitted code.
-export GIT_SHA="$(git rev-parse --short HEAD)$(git diff --quiet HEAD -- . ':!results' || echo '-dirty')"
+# Untracked files count too: the image is built from the working tree.
+dirty=$([ -z "$(git status --porcelain -- . ':!results')" ] || echo -dirty)
+export GIT_SHA="$(git rev-parse --short HEAD)$dirty"
 apps=$(docker compose ps --services --status running | grep -c '^app' || true)
 export TOPOLOGY="${TOPOLOGY:-$apps app instance(s) behind nginx; Kafka topic with 6 partitions, 3 consumers per instance}"
 export HARDWARE_NOTE="${HARDWARE_NOTE:-not recorded}"
 cli=generator/target/generator-0.0.1-SNAPSHOT-cli.jar
 psql() { docker compose exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"; }
-offsets() { docker compose exec -T kafka /opt/kafka/bin/kafka-get-offsets.sh --bootstrap-server localhost:9092 \
-    --topic statement.lines | sort; }
+# Git Bash on Windows would rewrite the in-container /opt/... path into a Windows path.
+kafka_tool() { MSYS_NO_PATHCONV=1 docker compose exec -T kafka "/opt/kafka/bin/$1" --bootstrap-server localhost:9092 \
+    "${@:2}"; }
+offsets() { kafka_tool kafka-get-offsets.sh --topic statement.lines | sort; }
 
 ./mvnw -B -q -pl generator package -DskipTests
 
@@ -55,8 +59,8 @@ details="results/benchmark/$stamp-details.txt"
     echo "## Peak memory per container during the run (docker stats, sampled every second; [limit])"
     # "app1 312.5MiB / 768MiB" -> the highest MiB seen per container.
     awk '{ v = $2; u = v; sub(/[A-Za-z]+$/, "", v); sub(/^[0-9.]+/, "", u);
-           m = (u == "GiB") ? v * 1024 : (u == "KiB" ? v / 1024 : v);
-           if (m > peak[$1]) peak[$1] = m; limit[$1] = $4 }
+           m = (u == "GiB") ? v * 1024 : (u == "KiB" ? v / 1024 : v + 0);
+           if (!($1 in peak) || m > peak[$1]) peak[$1] = m; limit[$1] = $4 }
          END { for (c in peak) printf "%-45s %8.1f MiB  [%s]\n", c, peak[c], limit[c] }' "$samples" | sort
     echo
     echo "## Lines published per partition during the run (end offsets after minus before)"
@@ -64,8 +68,9 @@ details="results/benchmark/$stamp-details.txt"
         | awk -F: '{printf "partition %s: %d records\n", $1, $3 - $2}'
     echo
     echo "## Which consumer owned each partition (at the end of the run)"
-    docker compose exec -T kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server localhost:9092 \
-        --describe --group statement-matcher 2>/dev/null | awk 'NR == 1 || /statement.lines/ {print $3, $4, $6, $NF}'
+    # Its output starts with a blank line, so the header is picked by name.
+    kafka_tool kafka-consumer-groups.sh --describe --group statement-matcher 2>/dev/null \
+        | awk '$1 == "GROUP" || $2 == "statement.lines" {print $3, $4, $6, $NF}'
     echo
     echo "## Lines stored per instance"
     psql -c "SELECT ingested_by AS instance, count(*) AS lines_stored FROM statement_lines

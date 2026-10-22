@@ -1,0 +1,9 @@
+nginx.conf with fail_timeout=5s, 8 rounds of 300 GETs
+round 1: 300 x 200  (app1 lookups: 3: Host not found,3: Host not found,2: Server failure,2: Server failure)
+round 2: 300 x 200  (app1 lookups: 3: Host not found,3: Host not found,3: Host not found,2: Server failure)
+round 3: 299 x 200  1 x 504  (app1 lookups: 2: Server failure,2: Server failure,3: Host not found)
+round 4: 300 x 200  (app1 lookups: 3: Host not found,3: Host not found,3: Host not found,3: Host not found,3: Host not found,2: Server failure)
+round 5: 300 x 200  (app1 lookups: 2: Server failure,3: Host not found,2: Server failure)
+round 6: 300 x 200  (app1 lookups: 3: Host not found,3: Host not found,3: Host not found,3: Host not found,2: Server failure)
+round 7: 300 x 200  (app1 lookups: 3: Host not found,3: Host not found,3: Host not found,2: Server failure)
+round 8: 300 x 200  (app1 lookups: 3: Host not found,2: Server failure,3: Host not found,2: Server failure)

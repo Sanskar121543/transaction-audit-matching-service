@@ -1,7 +1,41 @@
 name: transaction-audit-matching
 
 # Profiles:
-#   (none)   postgres only: run the app from your IDE with ./mvnw -pl service spring-boot:run
+#   (none)           postgres + kafka only: run the app from your IDE with ./mvnw -pl service spring-boot:run
+#   --profile lite   + app1 behind nginx, kafbat-ui (daily work)
+#   --profile full   + app2 (tests, demos and the benchmark)
+#
+# Never run this stack at the same time as the Payments Ledger Service's: together they do not fit in the
+# memory Docker has on a 16 GB laptop.
+
+x-app-env: &app-env
+  DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:?set POSTGRES_DB in .env}
+  DB_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
+  DB_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+  API_KEY_HASHES: ${API_KEY_HASHES:?set API_KEY_HASHES in .env}
+  SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+  # Heap is fixed inside a 768 MB container; the rest is metaspace, code cache, threads and direct buffers.
+  JAVA_OPTS: >-
+    -Xms384m -Xmx384m -XX:+UseG1GC -XX:MaxGCPauseMillis=100
+    -XX:MetaspaceSize=96m -XX:MaxMetaspaceSize=160m -XX:ReservedCodeCacheSize=96m
+    -XX:MaxDirectMemorySize=64m -XX:+ExitOnOutOfMemoryError
+
+x-app: &app
+  build: .
+  image: transaction-audit-matching-service:local
+  mem_limit: 768m
+  memswap_limit: 768m
+  depends_on:
+    postgres:
+      condition: service_healthy
+    kafka:
+      condition: service_healthy
+  healthcheck:
+    test: ["CMD", "curl", "-fsS", "http://localhost:8080/actuator/health/readiness"]
+    interval: 5s
+    timeout: 3s
+    retries: 30
+    start_period: 20s
 
 services:
   postgres:
@@ -10,8 +44,12 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env}
+    # client_connection_check_interval lets Postgres notice a killed app within ~1s and roll back its
+    # open transaction, releasing that instance's locks.
     command: >-
       postgres -c shared_buffers=192MB -c effective_cache_size=512MB -c max_connections=60
+      -c client_connection_check_interval=1s
+      -c tcp_keepalives_idle=30 -c tcp_keepalives_interval=10 -c tcp_keepalives_count=3
     ports:
       - "127.0.0.1:${POSTGRES_PORT:-5433}:5432"
     volumes:
@@ -25,5 +63,83 @@ services:
       timeout: 3s
       retries: 20
 
+  kafka:
+    image: apache/kafka:4.3.1
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LISTENERS: INTERNAL://:9092,CONTROLLER://:9093,EXTERNAL://:9094
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9092,EXTERNAL://localhost:${KAFKA_PORT:-9095}
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      # The image defaults to a 1 GB heap, which would not fit the 768 MB limit.
+      KAFKA_HEAP_OPTS: -Xms384m -Xmx384m
+    ports:
+      - "127.0.0.1:${KAFKA_PORT:-9095}:9094"
+    volumes:
+      - kafkadata:/var/lib/kafka/data
+    mem_limit: 768m
+    memswap_limit: 768m
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 9092"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  kafbat-ui:
+    image: ghcr.io/kafbat/kafka-ui:v1.5.0
+    profiles: [lite, full]
+    environment:
+      KAFKA_CLUSTERS_0_NAME: transaction-audit-matching
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      # For looking only: a message produced by hand onto statement.lines would be dead-lettered at best.
+      KAFKA_CLUSTERS_0_READONLY: "true"
+      DYNAMIC_CONFIG_ENABLED: "false"
+      JAVA_OPTS: -Xms128m -Xmx256m
+    ports:
+      - "127.0.0.1:${KAFBAT_PORT:-8091}:8080"
+    mem_limit: 512m
+    memswap_limit: 512m
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+  app1:
+    <<: *app
+    profiles: [lite, full]
+    environment:
+      <<: *app-env
+      INSTANCE_ID: app1
+
+  app2:
+    <<: *app
+    profiles: [full]
+    environment:
+      <<: *app-env
+      INSTANCE_ID: app2
+
+  nginx:
+    image: nginx:1.30.6-alpine
+    profiles: [lite, full]
+    # Loopback only: the demo keys in .env.example are public, so the API must not be reachable from the LAN.
+    ports:
+      - "127.0.0.1:${HTTP_PORT:-8089}:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    mem_limit: 64m
+    memswap_limit: 64m
+    depends_on:
+      app1:
+        condition: service_healthy
+
 volumes:
   pgdata:
+  kafkadata:

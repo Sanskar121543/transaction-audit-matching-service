@@ -24,7 +24,7 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: maven
-      # Testcontainers starts Postgres (and later Kafka, app containers and nginx) on the runner's Docker.
+      # Testcontainers starts Postgres, Kafka, the app (x2) and nginx on the runner's Docker.
       - name: Build and run all tests
         run: ./mvnw -B verify
       - name: Upload test reports
@@ -35,6 +35,25 @@ jobs:
           path: |
             **/target/surefire-reports
             **/target/failsafe-reports
+
+  compose:
+    name: Compose stack smoke test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Start the full stack (2 instances behind nginx)
+        run: |
+          cp .env.example .env
+          docker compose --profile full up -d --build --wait
+      - name: Smoke test through nginx
+        run: scripts/smoke.sh
+      - name: Show logs
+        if: failure()
+        run: docker compose --profile full logs --tail 200
+      - name: Stop
+        if: always()
+        run: docker compose --profile full down -v
 
   secrets:
     name: Secret scan (gitleaks, full history)
