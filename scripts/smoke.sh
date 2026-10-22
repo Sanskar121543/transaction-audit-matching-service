@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # End-to-end check against a running stack, through nginx: a run, a ledger, a statement that goes through
-# Kafka, the run completing with the expected matches and breaks, and a replayed upload.
+# Kafka, the run completing with the expected matches and breaks, a replayed upload, the dashboard and its
+# event stream, and (full profile) Prometheus scraping every instance and Grafana's provisioned dashboard.
 # Usage: scripts/smoke.sh [base-url]   (reads OPERATOR_API_KEY from .env)
 # EXPECT_INSTANCES (default 2) is how many different app instances must answer: 1 for the lite profile.
 set -euo pipefail
@@ -48,4 +49,32 @@ seen=$(echo "$instances" | wc -w)
 echo "run=$run matches=$matches breaks=$breaks replay_status=$replay instances_seen=[$instances]"
 [ "$matches" = "3" ] && [ "$breaks" = "1" ] && [ "$replay" = "200" ] || { echo "FAIL"; exit 1; }
 [ "$seen" -ge "${EXPECT_INSTANCES:-2}" ] || { echo "FAIL: expected ${EXPECT_INSTANCES:-2} instances, saw $seen"; exit 1; }
+
+# The dashboard page needs no key; its event stream does, and must come through nginx unbuffered.
+curl -fsS "$BASE/" | grep -q "<title>Reconciliation Dashboard</title>" || { echo "FAIL: dashboard page"; exit 1; }
+event=$(curl -sS -N --max-time 5 -H "$KEY_HEADER" "$BASE/v1/stream" 2>/dev/null | grep -m1 '^event:' || true)
+[ "$event" = "event:runs" ] || { echo "FAIL: event stream sent '$event'"; exit 1; }
+curl -fsS -H "$KEY_HEADER" "$BASE/v1/runs/$run/breakdown" | grep -q '"byType"' || { echo "FAIL: breakdown"; exit 1; }
+
+# With the full profile: Prometheus scrapes every instance, and Grafana has the provisioned dashboard.
+if docker compose ps --services --status running 2>/dev/null | grep -qx prometheus; then
+    prometheus="http://localhost:${PROMETHEUS_PORT:-9091}"
+    grafana="http://localhost:${GRAFANA_PORT:-3001}"
+    up=0
+    for _ in $(seq 1 30); do
+        up=$(curl -fsS "$prometheus/api/v1/query?query=sum(up%7Bjob%3D%22matching%22%7D)" \
+            | sed -n 's/.*"value":\[[^,]*,"\([0-9]*\)"\].*/\1/p')
+        [ "${up:-0}" -ge "${EXPECT_INSTANCES:-2}" ] && break
+        sleep 2
+    done
+    [ "${up:-0}" -ge "${EXPECT_INSTANCES:-2}" ] || { echo "FAIL: Prometheus scrapes ${up:-0} instances"; exit 1; }
+    provisioned=""
+    for _ in $(seq 1 30); do
+        provisioned=$(curl -fsS "$grafana/api/dashboards/uid/reconciliation" 2>/dev/null | grep -o '"uid":"reconciliation"' || true)
+        [ -n "$provisioned" ] && break
+        sleep 2
+    done
+    [ -n "$provisioned" ] || { echo "FAIL: Grafana dashboard not provisioned"; exit 1; }
+    echo "prometheus_targets_up=$up grafana_dashboard=ok"
+fi
 echo "SMOKE OK"

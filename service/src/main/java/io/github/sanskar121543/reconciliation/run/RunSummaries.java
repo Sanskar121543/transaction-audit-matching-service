@@ -30,10 +30,12 @@ public class RunSummaries {
         Map<Long, Long> expectedLines = new HashMap<>();
         Map<Long, Map<String, Long>> byRule = new HashMap<>();
         Map<Long, Map<String, Long>> byType = new HashMap<>();
+        Map<Long, Map<String, Long>> byStatus = new HashMap<>();
         for (long runId : runIds) {
             sizes.put(runId, new long[2]);
             byRule.put(runId, new TreeMap<>());
             byType.put(runId, new TreeMap<>());
+            byStatus.put(runId, new TreeMap<>());
         }
         Long[] ids = runIds.toArray(Long[]::new);
         query("""
@@ -47,6 +49,8 @@ public class RunSummaries {
                 (runId, rule, count) -> byRule.get(runId).put(rule, count));
         query("SELECT run_id, type, count(*) FROM breaks WHERE run_id = ANY(?) GROUP BY run_id, type", ids, 1,
                 (runId, type, count) -> byType.get(runId).put(type, count));
+        query("SELECT run_id, status, count(*) FROM breaks WHERE run_id = ANY(?) GROUP BY run_id, status", ids, 1,
+                (runId, status, count) -> byStatus.get(runId).put(status, count));
 
         Map<Long, RunSummary> result = new HashMap<>();
         for (long runId : runIds) {
@@ -55,7 +59,7 @@ public class RunSummaries {
             long matches = byRule.get(runId).values().stream().mapToLong(Long::longValue).sum();
             long breaks = byType.get(runId).values().stream().mapToLong(Long::longValue).sum();
             result.put(runId, new RunSummary(ledger, lines, expectedLines.get(runId), matches, byRule.get(runId),
-                    breaks, byType.get(runId), matchRate(matches, ledger + lines)));
+                    breaks, byType.get(runId), byStatus.get(runId), matchRate(matches, ledger + lines)));
         }
         return result;
     }

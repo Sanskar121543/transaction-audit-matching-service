@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Reconciliation Dashboard</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="styles.css">
+  <script src="vendor/chart.umd.min.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <h1>Reconciliation</h1>
+    <span id="connection" class="pill" data-state="locked" role="status">Not connected</span>
+    <form id="key-form" class="key-form" autocomplete="off">
+      <label for="api-key" class="visually-hidden">API key</label>
+      <input id="api-key" type="password" placeholder="API key (read-only is enough)" required>
+      <button type="submit">Connect</button>
+    </form>
+    <button id="sign-out" type="button" class="ghost" hidden>Forget key</button>
+  </header>
+
+  <main class="layout">
+    <nav class="runs" aria-label="Latest runs">
+      <h2>Latest runs</h2>
+      <ol id="run-list" class="run-list"></ol>
+      <p id="no-runs" class="muted" hidden>No runs yet. Create one with <code>POST /v1/runs</code>.</p>
+    </nav>
+
+    <section id="run" class="run" aria-live="polite" hidden>
+      <div class="run-head">
+        <h2 id="run-title"></h2>
+        <p id="run-meta" class="muted"></p>
+        <p id="run-problem" class="problem" hidden></p>
+      </div>
+
+      <div class="figures">
+        <div class="hero">
+          <span class="label">Match rate</span>
+          <span id="match-rate" class="hero-value">–</span>
+          <span id="match-rate-detail" class="muted"></span>
+        </div>
+        <div class="tile"><span class="label">Matches</span><span id="matches" class="tile-value">–</span></div>
+        <div class="tile"><span class="label">Breaks</span><span id="breaks" class="tile-value">–</span></div>
+        <div class="tile"><span class="label">Unresolved exposure</span><span id="exposure" class="tile-value">–</span></div>
+        <div class="tile"><span class="label">Resolved</span><span id="resolved" class="tile-value">–</span></div>
+      </div>
+
+      <div id="progress" class="progress" hidden>
+        <span class="label">Statement lines matched so far</span>
+        <div class="meter" role="progressbar" aria-valuemin="0" aria-valuemax="100"><div id="meter-fill"></div></div>
+        <span id="progress-text" class="muted"></span>
+      </div>
+
+      <div class="charts">
+        <figure class="card">
+          <figcaption>
+            <span class="card-title">Breaks by type</span>
+            <span class="muted">count; hover for exposure</span>
+          </figcaption>
+          <div class="chart-box"><canvas id="by-type" role="img" aria-label="Breaks by type"></canvas></div>
+          <details>
+            <summary>Table</summary>
+            <table id="by-type-table" class="data"></table>
+          </details>
+        </figure>
+        <figure class="card">
+          <figcaption>
+            <span class="card-title">Breaks by age and status</span>
+            <span class="muted">days since the item date</span>
+          </figcaption>
+          <div class="chart-box"><canvas id="by-age" role="img" aria-label="Breaks by age and workflow status"></canvas></div>
+          <details>
+            <summary>Table</summary>
+            <table id="by-age-table" class="data"></table>
+          </details>
+        </figure>
+      </div>
+
+      <figure class="card">
+        <figcaption>
+          <span class="card-title">Accounts with the most unresolved exposure</span>
+          <span class="muted">open and investigating breaks</span>
+        </figcaption>
+        <table id="accounts-table" class="data"></table>
+      </figure>
+    </section>
+
+    <section id="locked" class="locked">
+      <h2>Enter an API key to see the runs</h2>
+      <p class="muted">The key stays in this browser tab only (session storage) and is sent as the
+        <code>X-API-Key</code> header. A read-only key is enough: the dashboard never changes anything.</p>
+    </section>
+  </main>
+</body>
+</html>

@@ -11,7 +11,7 @@ public record RunResponse(long id, String label, RunStatus status, long amountTo
         String createdBy, Instant createdAt, Instant statementQueuedAt, Instant completedAt, String matchingProblem,
         Instant matchingProblemAt, RunSummary summary) {
 
-    static RunResponse of(Run run, RunSummary summary) {
+    public static RunResponse of(Run run, RunSummary summary) {
         return new RunResponse(run.getId(), run.getLabel(), run.getStatus(), run.tolerance().amountCents(),
                 run.tolerance().dateWindowDays(), run.getCreatedBy(), run.getCreatedAt(), run.getStatementQueuedAt(),
                 run.getCompletedAt(), run.getMatchingProblem(), run.getMatchingProblemAt(), summary);
