@@ -24,7 +24,8 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: maven
-      # Testcontainers starts Postgres, Kafka, the app (x2) and nginx on the runner's Docker.
+      # Testcontainers starts Postgres, Kafka, the app (x2) and nginx on the runner's Docker; the MCP server's
+      # tests run the service jar the service module packaged, and the MCP server's own jar over stdio.
       - name: Build and run all tests
         run: ./mvnw -B verify
       - name: Upload test reports
@@ -42,7 +43,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
-      - name: Start the full stack (2 instances behind nginx)
+      - name: Start the full stack (2 instances behind nginx, MCP server, Prometheus, Grafana)
         run: |
           cp .env.example .env
           docker compose --profile full up -d --build --wait

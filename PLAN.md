@@ -1,6 +1,6 @@
 # Transaction Audit & Matching Service: Plan
 
-> **Status: executed autonomously from 2026-10-19.** You asked me to build the whole project, so the phases run back to back. Each ends with a git tag (`phase-1` … `phase-7`). Done so far: phases 1–6.
+> **Status: executed autonomously from 2026-10-19.** You asked me to build the whole project, so the phases run back to back. Each ends with a git tag (`phase-1` … `phase-7`). Done: phases 1–7 (phase 8 skipped, D2).
 >
 > You approved D1–D3 before any code depended on them. Every other "default I picked" is a decision you hadn't made yet. DESIGN.md records each one as choice / alternatives / why, so any of them is easy to change.
 
@@ -74,5 +74,5 @@
 | 4 | Workflow OPEN → INVESTIGATING → RESOLVED, assignee, notes, append-only audit trail with triggers | `BreakWorkflowIT` (every step through the API, stale versions, 8 simultaneous resolves); `AuditTrailIT` (changes made straight in Postgres are recorded or refused; the trail is append-only) |
 | 5 | Dashboard (vanilla JS, Chart.js, SSE); Prometheus + Grafana | `DashboardIT` (page without a key, its data with one, the event stream, the per-run breakdown); `MetricsIT` (counts agree with the run, every Grafana metric exists); `scripts/smoke.sh` (stream through nginx, Prometheus scraping both instances, Grafana's dashboard provisioned) |
 | 6 | MCP server module (stdio + HTTP), read-only by design, with safety controls | `McpHttpIT` (every tool through the SDK's MCP client against the real service; no tool changes any table; bad arguments refused; an operator key refused; token, Host and Origin checks); `McpStdioIT` (the packaged jar over stdio); `HttpGuardTest`; MCP Inspector 2.11.0 CLI over both transports |
-| 7 | CI (tests, compose smoke, gitleaks, commit-message check), README, DESIGN, MCP_GUIDE, AI-ASSISTANCE, demo GIF | CI green |
+| 7 | CI (tests, compose smoke, gitleaks, commit-message check), README, DESIGN, MCP_GUIDE, AI-ASSISTANCE, demo GIF | CI green; `docs/demo.gif` recorded from the running stack; README numbers copied from `results/` |
 | 8 | Optional cloud VM | **Skipped (D2)** |
