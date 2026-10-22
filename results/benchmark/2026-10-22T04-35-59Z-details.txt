@@ -1,0 +1,46 @@
+Run 2, commit ac00b3b
+
+## Peak memory per container during the run (docker stats, sampled every second; [limit])
+flagd-ui                                         180.0 MiB  [200MiB]
+tam-bench2-app1-1                                666.5 MiB  [768MiB]
+tam-bench2-app2-1                                656.5 MiB  [768MiB]
+tam-bench2-grafana-1                             286.5 MiB  [512MiB]
+tam-bench2-kafbat-ui-1                           290.2 MiB  [512MiB]
+tam-bench2-kafka-1                               516.4 MiB  [768MiB]
+tam-bench2-mcp-1                                 169.5 MiB  [384MiB]
+tam-bench2-nginx-1                                11.6 MiB  [64MiB]
+tam-bench2-postgres-1                            225.7 MiB  [768MiB]
+tam-bench2-prometheus-1                           42.4 MiB  [256MiB]
+
+## Lines published per partition during the run (end offsets after minus before)
+partition 0: 16651 records
+partition 1: 16606 records
+partition 2: 8426 records
+partition 3: 16691 records
+partition 4: 33359 records
+partition 5: 8320 records
+
+## Which consumer owned each partition (at the end of the run)
+PARTITION CURRENT-OFFSET LAG CLIENT-ID
+3 18353 0 app2-0
+4 36634 0 app2-1
+2 9244 0 app1-2
+0 18245 0 app1-0
+5 9172 0 app2-2
+1 18297 0 app1-1
+
+## Lines stored per instance
+ instance | lines_stored 
+----------+--------------
+ app1     |        41683
+ app2     |        58370
+(2 rows)
+
+## Server timestamps: statement recorded, last batch of lines begun, run completed
+      statement_recorded       |       last_batch_begun        |         completed_at          | last_batch_and_end_of_run_step 
+-------------------------------+-------------------------------+-------------------------------+--------------------------------
+ 2026-10-22 04:35:10.742119+00 | 2026-10-22 04:35:54.871147+00 | 2026-10-22 04:35:56.832506+00 | 00:00:01.961359
+(1 row)
+
+## The end-of-run step, as the worker that completed the run logged it
+Run 2 completed: all 100053 lines in; the end-of-run step made 12095 matches and 9369 breaks in 1947 ms

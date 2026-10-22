@@ -1,0 +1,43 @@
+{
+  "kind" : "throughput",
+  "recordedAt" : "2026-10-22T04:35:59Z",
+  "gitCommit" : "ac00b3b",
+  "topology" : "2 app instance(s) behind nginx; Kafka topic with 6 partitions, 3 consumers per instance",
+  "hardwareNote" : "Laptop: AMD Ryzen 9 7845HX (12 cores/24 threads), 16 GB RAM, Windows 11, Docker Desktop 29.8.0 (WSL2, 7.4 GiB for Docker)",
+  "config" : {
+    "seed" : 42,
+    "payments" : 101000,
+    "accounts" : 12,
+    "firstDay" : "2026-09-01",
+    "days" : 30,
+    "toleranceCents" : 100,
+    "dateWindowDays" : 3
+  },
+  "ledgerRecords" : 100941,
+  "statementLines" : 100053,
+  "runId" : 2,
+  "ledgerCsvBytes" : 7005983,
+  "statementCsvBytes" : 6722505,
+  "timings" : {
+    "ledgerUploadMillis" : 2651,
+    "statementUploadMillis" : 1375,
+    "untilCompletedMillis" : 45282,
+    "totalMillis" : 49308,
+    "serverMatchingMillis" : 46090
+  },
+  "statementLinesPerSecond" : 2144.0,
+  "matches" : {
+    "predicted" : 95120,
+    "expected" : 95043,
+    "correct" : 92701,
+    "precision" : 0.9745689655172414,
+    "recall" : 0.9753585219321781
+  },
+  "breaks" : {
+    "predicted" : 9369,
+    "expected" : 8992,
+    "correct" : 6233,
+    "precision" : 0.6652791119649909,
+    "recall" : 0.6931717081850534
+  }
+}
