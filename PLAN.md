@@ -1,6 +1,6 @@
 # Transaction Audit & Matching Service: Plan
 
-> **Status: executed autonomously from 2026-10-19.** You asked me to build the whole project, so the phases run back to back. Each ends with a git tag (`phase-1` … `phase-7`). Done so far: phases 1–3.
+> **Status: executed autonomously from 2026-10-19.** You asked me to build the whole project, so the phases run back to back. Each ends with a git tag (`phase-1` … `phase-7`). Done so far: phases 1–4.
 >
 > You approved D1–D3 before any code depended on them. Every other "default I picked" is a decision you hadn't made yet. DESIGN.md records each one as choice / alternatives / why, so any of them is easy to change.
 
@@ -38,6 +38,9 @@
 | D16 | Partitioning | 6 partitions keyed by account id, 3 consumers per instance, consumer client id = instance id | 6 splits evenly over 1, 2 or 3 instances. Lines need not split evenly: with the generator's 12 accounts, one partition carries a third of them (the benchmark records this). |
 | D17 | A record that fails | An invalid record goes to `statement.lines.DLT`. A transient failure is retried with back-off until it succeeds: database down, lock timeout, deadlock, or a session Postgres ended, recognised by exception type or SQLState. Any other failure is tried twice more, then logged and recorded on the run as `matchingProblem` (exception type and SQLState, never imported text), and the batch goes on with other runs | A run cannot complete with a line missing: completion counts stored lines, and the counter moves only while the run is MATCHING and never past the accepted count. A run that hits a bug therefore waits in MATCHING with the reason shown, and nobody else's run is held up (`StatementLineListenerIT`). |
 | D18 | Noticing a dead instance | Kafka session timeout 10 s. Postgres ends a session idle in a transaction after 15 s (lifted for the end-of-run step), and checks for a vanished client every 1 s | A killed instance's partitions and locks pass to the other instance within seconds (`InstanceFailoverIT`). |
+| D19 | Workflow steps | OPEN → INVESTIGATING → RESOLVED, plus RESOLVED → INVESTIGATING to reopen. No skipping straight to RESOLVED. Investigating needs an owner (the one given, else the current one, else the caller). Resolving needs a resolution code (`TIMING_DIFFERENCE`, `BANK_FEE`, `BANK_ERROR`, `LEDGER_CORRECTED`, `WRITTEN_OFF`, `OTHER`) and a note; reopening needs a note. A resolved break cannot be reassigned until reopened. Notes can be added in any state | The codes make "how were breaks settled" answerable later (dashboard, MCP) without parsing free text. The note says why. |
+| D20 | Who writes the audit trail | **Postgres triggers**, in the same transaction as the change. Each transaction names its caller with `set_config('matching.actor', …, true)` (SET LOCAL), and the triggers refuse any change to a break, and any note, that names nobody. The trail and the notes are append-only, and a break's recorded facts (type, records, exposure, …) cannot change | The alternative, writing audit rows from the service, misses changes made in psql and depends on every future code path remembering to do it. Cost: a manual fix in psql must `SET LOCAL matching.actor` first, which is the point (`AuditTrailIT`). |
+| D21 | Two people changing one break | Optimistic: every change sends the `version` it read, the database raises the version on every change (including ones made outside the service), and a stale request gets 409 and changes nothing. Notes carry no version: they never conflict | Last-write-wins silently loses someone's change. A lock held across a person's think time would block everyone else (`BreakWorkflowIT`: of 8 simultaneous resolves, exactly one wins). |
 
 ## 3. Stack (versions checked 2026-10-19)
 
@@ -62,7 +65,7 @@
 | 1 | Runs; CSV/JSON ingestion with validation and a rejection report; exact matching; every break type with aging; API keys with operator/read-only roles | `ReconciliationIT`, `ImportApiIT`, `AuthIT` (path tricks), `SourceImmutabilityIT`, rule unit tests |
 | 2 | Tolerance and normalized-reference rules; synthetic generator with known breaks; precision/recall | rule tests; `scripts/accuracy.sh` → `results/accuracy/` |
 | 3 | Kafka (KRaft) ingestion partitioned by account; nginx + 2 instances; compose lite/full | `SameFileConcurrencyIT` (same file through both instances); `InstanceFailoverIT` (SIGKILL mid-transaction) and `UploadFailoverIT` (SIGKILL mid-upload); `scripts/benchmark.sh` → `results/benchmark/` |
-| 4 | Workflow OPEN → INVESTIGATING → RESOLVED, assignee, notes, append-only audit trail with triggers | workflow and audit-immutability tests |
+| 4 | Workflow OPEN → INVESTIGATING → RESOLVED, assignee, notes, append-only audit trail with triggers | `BreakWorkflowIT` (every step through the API, stale versions, 8 simultaneous resolves); `AuditTrailIT` (changes made straight in Postgres are recorded or refused; the trail is append-only) |
 | 5 | Dashboard (vanilla JS, Chart.js, SSE); Prometheus + Grafana | stream and dashboard tests |
 | 6 | MCP server module (stdio + HTTP), read-only by design, with safety controls | every tool through an MCP client; a test that no tool can change data |
 | 7 | CI (tests, compose smoke, gitleaks, commit-message check), README, DESIGN, MCP_GUIDE, AI-ASSISTANCE, demo GIF | CI green |

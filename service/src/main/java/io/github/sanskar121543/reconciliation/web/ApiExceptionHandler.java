@@ -17,6 +17,7 @@ import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.transaction.CannotCreateTransactionException;
 import org.springframework.validation.FieldError;
 import org.springframework.validation.method.ParameterValidationResult;
@@ -42,6 +43,15 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     ResponseEntity<ProblemDetail> conflict(ConflictException e) {
         return ResponseEntity.status(HttpStatus.CONFLICT)
                 .body(Problems.of(HttpStatus.CONFLICT, e.type(), "Conflict", e.getMessage()));
+    }
+
+    // Two requests based on the same version of a break: the first one's UPDATE committed, and the second
+    // one's, conditional on that version, found no row.
+    @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
+    ResponseEntity<ProblemDetail> concurrentChange(ObjectOptimisticLockingFailureException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(Problems.of(HttpStatus.CONFLICT, "break-changed", "Conflict",
+                        "Someone else changed this break at the same time. Read it again."));
     }
 
     @ExceptionHandler(MalformedFileException.class)
